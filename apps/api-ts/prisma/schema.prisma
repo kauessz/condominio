@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  passwordHash  String
+  role          Role     @default(RESIDENT)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Condo {
+  id        String   @id @default(cuid())
+  name      String
+  cnpj      String   @unique
+  units     Unit[]
+  residents Resident[]
+  createdAt DateTime @default(now())
+}
+
+model Unit {
+  id        String   @id @default(cuid())
+  number    String
+  block     String?
+  condoId   String
+  condo     Condo    @relation(fields: [condoId], references: [id])
+  resident  Resident?
+}
+
+model Resident {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  condoId   String
+  condo     Condo    @relation(fields: [condoId], references: [id])
+  unitId    String?  @unique
+  unit      Unit?    @relation(fields: [unitId], references: [id])
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  RESIDENT
+}

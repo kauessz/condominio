@@ -1,0 +1,45 @@
+spring:
+  profiles:
+    active: dev
+  
+  web:
+    cors:
+      allowed-origins: "http://localhost:5173"
+      allowed-methods: "*"
+      allowed-headers: "*"
+
+  datasource:
+    url: "jdbc:postgresql://localhost:5432/condo_saas"
+    username: "condo_app"
+    password: "condo_app_123"
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    user: condo_app
+    password: condo_app_123
+    # Removemos url/user/password para herdar do datasource
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+
+server:
+  port: 8080
+
+app:
+  jwt:
+    issuer: condo
+    secret: base64:YVD/WK/nr7LjsYsXjKqTfbEtaOTmwX6VE+obKhI0gVY=
+    expirationMinutes: 120
+
+logging:
+  level:
+    com.zaxxer.hikari: DEBUG
+    org.springframework.jdbc.datasource: DEBUG
+    org.flywaydb.core: DEBUG
