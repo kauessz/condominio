@@ -12,7 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/residents")
+@RequestMapping("api/residents")
 public class ResidentsController {
 
   private final ResidentRepository residents;

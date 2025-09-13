@@ -10,7 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/units")
+@RequestMapping({"/units", "/api/units"})
 public class UnitsController {
 
   private final UnitRepository units;

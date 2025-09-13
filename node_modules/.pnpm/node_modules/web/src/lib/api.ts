@@ -7,7 +7,7 @@ const baseURL =
   (import.meta.env.NEXT_PUBLIC_API_URL as string) ||
   "http://localhost:8080";
 
-export const api = axios.create({ baseURL, timeout: 10000 });
+export const api = axios.create({ baseURL: "/api" });
 
 // Header default do tenant (boa prática / fallback)
 (api.defaults.headers.common as any)["X-Tenant"] = "demo";
@@ -25,18 +25,13 @@ if (token) setToken(token);
 
 // >>> Injeta SEMPRE token e tenant em TODA request
 api.interceptors.request.use((config) => {
-  try {
-    const ls = typeof window !== "undefined" ? window.localStorage : null;
-    const tk = ls?.getItem("condo:token") || undefined;
-    const tenant = ls?.getItem("condo:tenant") || "demo";
-
-    config.headers = config.headers ?? {};
-    if (tk) (config.headers as any)["Authorization"] = `Bearer ${tk}`;
-    (config.headers as any)["X-Tenant"] = tenant;
-    (config.headers as any)["X-Tenant-ID"] = tenant; // compat
-  } catch {
-    // no-op
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
+  // evita cache bobo de alguns proxies
+  config.headers["Cache-Control"] = "no-store";
+  config.headers["Pragma"] = "no-cache";
   return config;
 });
 

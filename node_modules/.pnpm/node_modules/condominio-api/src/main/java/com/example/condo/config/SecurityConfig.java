@@ -7,7 +7,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -27,45 +26,40 @@ public class SecurityConfig {
   }
 
   @Bean
-  public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+  SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
     http
-      .csrf(csrf -> csrf.disable())
-      .cors(Customizer.withDefaults())
-      .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-      .authorizeHttpRequests(auth -> auth
-        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-        .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
-        .requestMatchers(HttpMethod.GET, "/auth/me").authenticated()
+        .csrf(csrf -> csrf.disable())
+        .cors(Customizer.withDefaults())
+        .authorizeHttpRequests(auth -> auth
+            .requestMatchers("/auth/**").permitAll()
 
-        // Condomínios (dashboard)
-        .requestMatchers(HttpMethod.GET, "/condominiums/**").hasAnyRole("ADMIN","MANAGER")
+            // leitura autenticada
+            .requestMatchers(HttpMethod.GET, "/api/**").authenticated()
 
-        // Unidades (lista/criação)
-        .requestMatchers(HttpMethod.GET,  "/units/**").hasAnyRole("ADMIN","MANAGER")
-        .requestMatchers(HttpMethod.POST, "/units/**").hasAnyRole("ADMIN","MANAGER")
+            // escrita: admin (ajuste seus papéis se tiver "MANAGER" etc.)
+            .requestMatchers(HttpMethod.POST, "/api/units/**", "/api/residents/**", "/api/condominiums/**")
+            .hasRole("ADMIN")
+            .requestMatchers(HttpMethod.PUT, "/api/units/**", "/api/residents/**", "/api/condominiums/**")
+            .hasRole("ADMIN")
+            .requestMatchers(HttpMethod.DELETE, "/api/units/**", "/api/residents/**", "/api/condominiums/**")
+            .hasRole("ADMIN")
 
-        // (opcional) Moradores depois:
-        // .requestMatchers(HttpMethod.GET, "/residents/**").hasAnyRole("ADMIN","MANAGER")
-        // .requestMatchers(HttpMethod.POST,"/residents/**").hasAnyRole("ADMIN","MANAGER")
-
-        .anyRequest().authenticated()
-      )
-      .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
-
+            .anyRequest().denyAll())
+        .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
     return http.build();
   }
 
   @Bean
-  public CorsConfigurationSource corsConfigurationSource() {
-    CorsConfiguration cfg = new CorsConfiguration();
-    cfg.setAllowedOrigins(List.of("http://localhost:5173"));
-    cfg.setAllowedMethods(List.of("GET","POST","PUT","PATCH","DELETE","OPTIONS"));
-    cfg.setAllowedHeaders(List.of("Authorization","Content-Type","X-Tenant","X-Tenant-ID"));
-    cfg.setExposedHeaders(List.of("Authorization"));
-    cfg.setAllowCredentials(false);
+  CorsConfigurationSource corsConfigurationSource() {
+    var c = new CorsConfiguration();
+    c.setAllowedOrigins(List.of("http://localhost:5173")); // porta do seu Vite
+    c.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
+    c.setAllowedHeaders(List.of("Authorization","Content-Type","X-Requested-With"));
+    c.setExposedHeaders(List.of("Authorization"));
+    c.setAllowCredentials(true);
 
-    UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
-    src.registerCorsConfiguration("/**", cfg);
-    return src;
+    var s = new UrlBasedCorsConfigurationSource();
+    s.registerCorsConfiguration("/**", c);
+    return s;
   }
 }
