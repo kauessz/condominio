@@ -31,30 +31,41 @@ public class SecurityConfig {
         .csrf(csrf -> csrf.disable())
         .cors(Customizer.withDefaults())
         .authorizeHttpRequests(auth -> auth
+            // CORS preflight
+            .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+            // Auth público (login/refresh)
+            .requestMatchers("/api/auth/**").permitAll()
+            // mantém compatibilidade se algo antigo ainda chamar /auth/**
             .requestMatchers("/auth/**").permitAll()
 
             // leitura autenticada
             .requestMatchers(HttpMethod.GET, "/api/**").authenticated()
 
-            // escrita: admin (ajuste seus papéis se tiver "MANAGER" etc.)
+            // escrita: admin
             .requestMatchers(HttpMethod.POST, "/api/units/**", "/api/residents/**", "/api/condominiums/**")
-            .hasRole("ADMIN")
+              .hasRole("ADMIN")
             .requestMatchers(HttpMethod.PUT, "/api/units/**", "/api/residents/**", "/api/condominiums/**")
-            .hasRole("ADMIN")
+              .hasRole("ADMIN")
             .requestMatchers(HttpMethod.DELETE, "/api/units/**", "/api/residents/**", "/api/condominiums/**")
-            .hasRole("ADMIN")
+              .hasRole("ADMIN")
 
-            .anyRequest().denyAll())
+            .anyRequest().denyAll()
+        )
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+
     return http.build();
   }
 
   @Bean
   CorsConfigurationSource corsConfigurationSource() {
     var c = new CorsConfiguration();
-    c.setAllowedOrigins(List.of("http://localhost:5173")); // porta do seu Vite
+    c.setAllowedOrigins(List.of("http://localhost:5173")); // porta do Vite
     c.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
-    c.setAllowedHeaders(List.of("Authorization","Content-Type","X-Requested-With"));
+    c.setAllowedHeaders(List.of(
+        "Authorization","Content-Type","X-Requested-With",
+        "X-Tenant","Cache-Control","Pragma"
+    ));
     c.setExposedHeaders(List.of("Authorization"));
     c.setAllowCredentials(true);
 

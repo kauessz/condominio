@@ -2,36 +2,39 @@
 import axios from "axios";
 import { clearAuth, loadAuthFromStorage } from "./auth";
 
-const baseURL =
+// Em dev usamos '/api' com o proxy do Vite.
+// Em produção, defina VITE_API_URL (ex.: 'https://minhaapi.com/api').
+const API_BASE =
   (import.meta.env.VITE_API_URL as string) ||
   (import.meta.env.NEXT_PUBLIC_API_URL as string) ||
-  "http://localhost:8080";
+  "/api";
 
-export const api = axios.create({ baseURL: "/api" });
+export const api = axios.create({ baseURL: API_BASE });
 
-// Header default do tenant (boa prática / fallback)
+// Header default do tenant (fallback)
 (api.defaults.headers.common as any)["X-Tenant"] = "demo";
 
 export function setToken(token?: string) {
-  if (token) (api.defaults.headers.common as any)["Authorization"] = `Bearer ${token}`;
-  else delete (api.defaults.headers.common as any)["Authorization"];
+  if (token) {
+    (api.defaults.headers.common as any)["Authorization"] = `Bearer ${token}`;
+  } else {
+    delete (api.defaults.headers.common as any)["Authorization"];
+  }
 }
 
-console.log("[API] baseURL =", baseURL);
+console.log("[API] baseURL =", API_BASE);
 
 // Hidrata token salvo ao carregar o app
 const { token } = loadAuthFromStorage();
 if (token) setToken(token);
 
-// >>> Injeta SEMPRE token e tenant em TODA request
+// Injeta token e cabeçalhos úteis em toda request
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  // evita cache bobo de alguns proxies
+  const t = localStorage.getItem("token");
+  if (t) config.headers.Authorization = `Bearer ${t}`;
   config.headers["Cache-Control"] = "no-store";
   config.headers["Pragma"] = "no-cache";
+  if (!config.headers["X-Tenant"]) config.headers["X-Tenant"] = "demo";
   return config;
 });
 

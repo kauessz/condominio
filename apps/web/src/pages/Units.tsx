@@ -89,10 +89,10 @@ export default function Units() {
         typeof data?.total === "number"
           ? data.total
           : typeof data?.totalElements === "number"
-          ? data.totalElements
-          : Array.isArray(data)
-          ? data.length
-          : 0;
+            ? data.totalElements
+            : Array.isArray(data)
+              ? data.length
+              : 0;
 
       setUnitsRaw(items);
       setTotal(tot);
@@ -152,7 +152,7 @@ export default function Units() {
       } else {
         await api.post("/units", {
           number: form.number.trim(),
-          block: form.block.trim() || undefined,
+          block: (form.block ?? "").trim(), // envia '' e o banco aceita
           condoId,
         });
         toast.show({ type: "success", msg: "Unidade criada" });
