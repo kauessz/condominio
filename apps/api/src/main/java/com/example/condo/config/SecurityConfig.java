@@ -7,7 +7,6 @@ import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -31,9 +30,7 @@ public class SecurityConfig {
     http
         .csrf(csrf -> csrf.disable())
         .cors(Customizer.withDefaults())
-        .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
-        // Resposta JSON para 401/403
         .exceptionHandling(e -> e
             .authenticationEntryPoint((req, res, ex) -> {
               res.setStatus(401);
@@ -55,37 +52,49 @@ public class SecurityConfig {
             .requestMatchers("/auth/**").permitAll()
             .requestMatchers("/actuator/health").permitAll()
 
-            // Leitura autenticada (com e sem /api, com e sem /**)
+            // ===== Leitura autenticada =====
             .requestMatchers(HttpMethod.GET,
+                "/api/condominiums/*/counters",
+                "/condominiums/*/counters",
                 "/api/condominiums", "/api/condominiums/**",
-                "/api/units",         "/api/units/**",
-                "/api/residents",     "/api/residents/**",
-                "/api/visitors",      "/api/visitors/**",
-                "/condominiums",      "/condominiums/**",
-                "/units",             "/units/**",
-                "/residents",         "/residents/**",
-                "/visitors",          "/visitors/**"
+                "/condominiums", "/condominiums/**",
+                "/api/units", "/api/units/**",
+                "/units", "/units/**",
+                "/api/residents", "/api/residents/**",
+                "/residents", "/residents/**",
+                "/api/visitors", "/api/visitors/**",
+                "/visitors", "/visitors/**"
             ).authenticated()
 
-            // Escrita: ADMIN (com e sem /api, com e sem /**)
+            // ===== Escrita somente ADMIN =====
             .requestMatchers(HttpMethod.POST,
-                "/api/condominiums/**", "/api/units/**", "/api/residents/**", "/api/visitors/**",
-                "/condominiums/**",     "/units/**",     "/residents/**",     "/visitors/**"
-            ).hasRole("ADMIN")
-            .requestMatchers(HttpMethod.PUT,
-                "/api/condominiums/**", "/api/units/**", "/api/residents/**", "/api/visitors/**",
-                "/condominiums/**",     "/units/**",     "/residents/**",     "/visitors/**"
-            ).hasRole("ADMIN")
-            .requestMatchers(HttpMethod.PATCH,
-                "/api/condominiums/**", "/api/units/**", "/api/residents/**", "/api/visitors/**",
-                "/condominiums/**",     "/units/**",     "/residents/**",     "/visitors/**"
-            ).hasRole("ADMIN")
-            .requestMatchers(HttpMethod.DELETE,
-                "/api/condominiums/**", "/api/units/**", "/api/residents/**", "/api/visitors/**",
-                "/condominiums/**",     "/units/**",     "/residents/**",     "/visitors/**"
+                "/api/condominiums/**", "/api/units/**",
+                "/api/residents/**", "/api/visitors/**",
+                "/condominiums/**", "/units/**",
+                "/residents/**", "/visitors/**"
             ).hasRole("ADMIN")
 
-            // Demais: negar
+            // PUT e PATCH precisam de chamadas separadas
+            .requestMatchers(HttpMethod.PUT,
+                "/api/condominiums/**", "/api/units/**",
+                "/api/residents/**", "/api/visitors/**",
+                "/condominiums/**", "/units/**",
+                "/residents/**", "/visitors/**"
+            ).hasRole("ADMIN")
+            .requestMatchers(HttpMethod.PATCH,
+                "/api/condominiums/**", "/api/units/**",
+                "/api/residents/**", "/api/visitors/**",
+                "/condominiums/**", "/units/**",
+                "/residents/**", "/visitors/**"
+            ).hasRole("ADMIN")
+
+            .requestMatchers(HttpMethod.DELETE,
+                "/api/condominiums/**", "/api/units/**",
+                "/api/residents/**", "/api/visitors/**",
+                "/condominiums/**", "/units/**",
+                "/residents/**", "/visitors/**"
+            ).hasRole("ADMIN")
+
             .anyRequest().denyAll()
         )
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);

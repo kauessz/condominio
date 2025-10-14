@@ -28,7 +28,6 @@ public class VisitorsController {
     this.condos = condos;
   }
 
-  // ===== DTOs =====
   public record PageResp<T>(List<T> items, long total, int page, int pageSize) {}
   public record VisitorDTO(
       Long id,
@@ -61,10 +60,10 @@ public class VisitorsController {
       String phone,
       String email,
       String note,
-      Instant checkInAt,        // opcional; se nulo, servidor usa now()
-      Instant expectedInAt,     // opcional
-      Visitor.Status status,    // default PENDING
-      Visitor.Type type         // default VISITOR
+      Instant checkInAt,
+      Instant expectedInAt,
+      Visitor.Status status,
+      Visitor.Type type
   ) {}
 
   public record UpdateVisitorReq(
@@ -88,29 +87,14 @@ public class VisitorsController {
 
   private VisitorDTO toDTO(Visitor v) {
     return new VisitorDTO(
-        v.getId(),
-        v.getTenantId(),
-        v.getCondominiumId(),
-        v.getUnitId(),
-        v.getName(),
-        v.getDocument(),
-        v.getPlate(),
-        v.getPhone(),
-        v.getEmail(),
-        v.getNote(),
-        v.getCheckInAt(),
-        v.getCheckOutAt(),
-        v.getStatus(),
-        v.getType(),
-        v.getApprovedAt(),
-        v.getApprovedBy(),
-        v.getRejectionReason(),
-        v.getExpectedInAt(),
-        v.getExpectedOutAt()
+        v.getId(), v.getTenantId(), v.getCondominiumId(), v.getUnitId(),
+        v.getName(), v.getDocument(), v.getPlate(), v.getPhone(), v.getEmail(), v.getNote(),
+        v.getCheckInAt(), v.getCheckOutAt(), v.getStatus(), v.getType(),
+        v.getApprovedAt(), v.getApprovedBy(), v.getRejectionReason(),
+        v.getExpectedInAt(), v.getExpectedOutAt()
     );
   }
 
-  // ===== LIST / SEARCH =====
   @GetMapping
   public PageResp<VisitorDTO> list(
       @RequestParam(name = "condoId") Long condoId,
@@ -133,17 +117,16 @@ public class VisitorsController {
     );
     Pageable pageable = PageRequest.of(page, pageSize, sort);
 
-    // Conversão p/ LocalDateTime (repositório espera LDT)
-    LocalDateTime fromDt = parseLocalDateTimeFromParam(from);
-    LocalDateTime toDt   = parseLocalDateTimeFromParam(to);
+    Instant fromTs = parseInstantFromLocalDateTimeISO(from);
+    Instant toTs   = parseInstantFromLocalDateTimeISO(to);
 
     Page<Visitor> p = visitors.search(
         tenant,
         condoId,
         unitId,
         (q == null || q.isBlank()) ? null : q.trim(),
-        fromDt,
-        toDt,
+        fromTs,
+        toTs,
         pageable
     );
 
@@ -161,27 +144,20 @@ public class VisitorsController {
     };
   }
 
-  /**
-   * Aceita "yyyy-MM-ddTHH:mm" (datetime-local do browser) ou ISO instant.
-   * Converte para LocalDateTime na timezone do servidor.
-   */
-  private static LocalDateTime parseLocalDateTimeFromParam(String v) {
+  private static Instant parseInstantFromLocalDateTimeISO(String v) {
     if (v == null || v.isBlank()) return null;
     try {
-      // Ex.: 2025-10-12T21:00 (input type="datetime-local")
-      return LocalDateTime.parse(v);
+      LocalDateTime ldt = LocalDateTime.parse(v);
+      return ldt.atZone(ZoneId.systemDefault()).toInstant();
     } catch (Exception ignored) {
       try {
-        // Ex.: 2025-10-12T00:00:00Z -> converte para LDT no fuso do servidor
-        Instant ins = Instant.parse(v);
-        return LocalDateTime.ofInstant(ins, ZoneId.systemDefault());
+        return Instant.parse(v);
       } catch (Exception e) {
         return null;
       }
     }
   }
 
-  // ===== CREATE =====
   @PostMapping
   public ResponseEntity<?> create(
       @RequestBody CreateVisitorReq req,
@@ -205,9 +181,7 @@ public class VisitorsController {
     }
     if (req.unitId() != null) {
       boolean ok = units.existsByTenantIdAndIdAndCondominiumId(tenant, req.unitId(), req.condominiumId());
-      if (!ok) {
-        return ResponseEntity.badRequest().body(Map.of("error", "unit_not_in_condo"));
-      }
+      if (!ok) return ResponseEntity.badRequest().body(Map.of("error", "unit_not_in_condo"));
     }
 
     var v = new Visitor();
@@ -221,9 +195,7 @@ public class VisitorsController {
     v.setEmail(req.email() == null ? null : req.email().trim());
     v.setNote(req.note() == null ? null : req.note().trim());
 
-    // se vier nulo, usa agora
     v.setCheckInAt(req.checkInAt() != null ? req.checkInAt() : Instant.now());
-    // previsão (opcional)
     v.setExpectedInAt(req.expectedInAt());
 
     v.setStatus(req.status() != null ? req.status() : Visitor.Status.PENDING);
@@ -233,7 +205,6 @@ public class VisitorsController {
     return ResponseEntity.ok(Map.of("id", saved.getId()));
   }
 
-  // ===== UPDATE =====
   @PutMapping("/{id}")
   public ResponseEntity<?> update(
       @PathVariable Long id,
@@ -258,9 +229,7 @@ public class VisitorsController {
     if (req.unitId() != null) {
       Long condoId = v.getCondominiumId();
       boolean ok = units.existsByTenantIdAndIdAndCondominiumId(tenant, req.unitId(), condoId);
-      if (!ok) {
-        return ResponseEntity.badRequest().body(Map.of("error", "unit_not_in_condo"));
-      }
+      if (!ok) return ResponseEntity.badRequest().body(Map.of("error", "unit_not_in_condo"));
       v.setUnitId(req.unitId());
     }
 
@@ -278,7 +247,6 @@ public class VisitorsController {
     return ResponseEntity.noContent().build();
   }
 
-  // ===== DELETE =====
   @DeleteMapping("/{id}")
   public ResponseEntity<?> delete(
       @PathVariable Long id,

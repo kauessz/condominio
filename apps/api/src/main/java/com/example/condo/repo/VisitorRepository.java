@@ -7,7 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-import java.time.LocalDateTime;
+import java.time.Instant;
 import java.util.Optional;
 
 public interface VisitorRepository extends JpaRepository<Visitor, Long> {
@@ -29,8 +29,8 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
                        @Param("c") Long condoId,
                        @Param("unitId") Long unitId,
                        @Param("q") String q,
-                       @Param("from") LocalDateTime from,
-                       @Param("to") LocalDateTime to,
+                       @Param("from") Instant from,
+                       @Param("to") Instant to,
                        Pageable pageable);
 
   Page<Visitor> findByTenantIdAndCondominiumId(String tenantId, Long condominiumId, Pageable pageable);
@@ -40,7 +40,6 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
 
   Optional<Visitor> findByTenantIdAndId(String tenantId, Long id);
 
-  // ===== contador de pendentes por condomínio (fixa PENDING na query) =====
   @Query("""
          select count(v) from Visitor v
           where v.tenantId = :t
