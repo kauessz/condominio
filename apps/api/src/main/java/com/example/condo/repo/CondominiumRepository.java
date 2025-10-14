@@ -7,18 +7,39 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.List;
 import java.util.Optional;
 
 public interface CondominiumRepository extends JpaRepository<Condominium, Long> {
 
-    // Paginação por tenant (usado no Dashboard)
-    Page<Condominium> findByTenantId(String tenantId, Pageable pageable);
+  Optional<Condominium> findByTenantIdAndId(String tenantId, Long id);
 
-    // Busca 1 registro por tenant + id
-    Optional<Condominium> findByTenantIdAndId(String tenantId, Long id);
+  // >>> Adicionado para o DevData.java compilar
+  Optional<Condominium> findByTenantIdAndName(String tenantId, String name);
 
-    // Método legado que retorna lista completa por tenant (mantido para compatibilidade)
-    @Query("select c from Condominium c where c.tenantId = :t")
-    List<Condominium> findAllByTenant(@Param("t") String tenantId);
+  // Contagem robusta via subqueries (evita problemas de join)
+  @Query(
+      value = """
+              select
+                c.id,
+                c.name,
+                c.cnpj,
+                c.created_at,
+                (select count(*) from unit u
+                   where u.tenant_id = c.tenant_id
+                     and u.condominium_id = c.id) as units,
+                (select count(*) from resident r
+                   where r.tenant_id = c.tenant_id
+                     and r.condominium_id = c.id) as residents
+              from condominium c
+              where c.tenant_id = :t
+              order by c.created_at desc
+              """,
+      countQuery = """
+              select count(*)
+              from condominium c
+              where c.tenant_id = :t
+              """,
+      nativeQuery = true
+  )
+  Page<Object[]> pageWithCounts(@Param("t") String tenantId, Pageable pageable);
 }

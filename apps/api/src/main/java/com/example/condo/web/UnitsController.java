@@ -1,8 +1,9 @@
 package com.example.condo.web;
 
+import com.example.condo.repo.UnitRepository;
+import com.example.condo.repo.UnitRepository.UnitCountView;
 import com.example.condo.entity.Unit;
 import com.example.condo.repo.CondominiumRepository;
-import com.example.condo.repo.UnitRepository;
 import com.example.condo.tenant.TenantContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -21,37 +22,44 @@ public class UnitsController {
     this.condos = condos;
   }
 
-  private static String norm(String s) {
-    if (s == null) return "";
-    return s.trim();
+  private static String norm(String s) { return s == null ? "" : s.trim(); }
+
+  private static String buildCode(String number, String block) {
+    String n = norm(number);
+    String b = norm(block);
+    if (b.isEmpty()) return n;
+    return b.replaceAll("\\s+", "").toUpperCase() + "-" + n;
   }
 
-  // DTOs/Reqs simples
-  public record UnitDTO(Long id, String number, String block) {
+  // DTOs/Reqs
+  public record UnitDTO(Long id, String number, String block, Long residentCount) {
     public static UnitDTO from(Unit u) {
       String b = (u.getBlock() == null || u.getBlock().isBlank()) ? null : u.getBlock();
-      return new UnitDTO(u.getId(), u.getNumber(), b);
+      return new UnitDTO(u.getId(), u.getNumber(), b, null);
+    }
+    public static UnitDTO fromCountView(UnitCountView v) {
+      String b = (v.getBlock() == null || v.getBlock().isBlank()) ? null : v.getBlock();
+      return new UnitDTO(v.getId(), v.getNumber(), b, v.getResidentCount() == null ? 0L : v.getResidentCount());
     }
   }
   public record NewUnitReq(Long condoId, String number, String block) {}
   public record UpdateUnitReq(String number, String block) {}
   public record ErrorDTO(String error) { public static ErrorDTO of(String m){ return new ErrorDTO(m); } }
 
-  // GET /units?condoId=...&q=&page=&size=
   @GetMapping
   public Page<UnitDTO> list(@RequestParam("condoId") Long condoId,
                             @RequestParam(value = "q", required = false) String q,
                             Pageable pageable) {
     String tenant = TenantContext.get();
-    return units.search(tenant, condoId, q, pageable).map(UnitDTO::from);
+    // usa a query com contagem
+    Page<UnitCountView> page = units.searchWithCount(tenant, condoId, q, pageable);
+    return page.map(UnitDTO::fromCountView);
   }
 
-  // POST /units
   @PostMapping
   public ResponseEntity<?> create(@RequestBody NewUnitReq req) {
     String tenant = TenantContext.get();
 
-    // valida se o condomínio pertence ao tenant
     var c = condos.findByTenantIdAndId(tenant, req.condoId());
     if (c.isEmpty()) {
       return ResponseEntity.status(403).body(ErrorDTO.of("Condomínio não pertence ao tenant atual."));
@@ -61,18 +69,21 @@ public class UnitsController {
     String block  = norm(req.block());
     if (number.isBlank()) return ResponseEntity.badRequest().body(ErrorDTO.of("Número é obrigatório."));
 
-    boolean dup = units.existsDuplicate(tenant, req.condoId(), number, block.toLowerCase(), null);
+    String bLowerOrNull = block.isBlank() ? null : block.toLowerCase();
+    boolean dup = units.existsDuplicate(tenant, req.condoId(), number, bLowerOrNull, null);
     if (dup) return ResponseEntity.badRequest().body(ErrorDTO.of("Já existe uma unidade com esse número/bloco neste condomínio."));
 
     Unit u = new Unit();
     u.setTenantId(tenant);
     u.setCondominiumId(req.condoId());
     u.setNumber(number);
-    u.setBlock(block);
-    return ResponseEntity.ok(UnitDTO.from(units.save(u)));
+    u.setBlock(block.isBlank() ? null : block);
+    u.setCode(buildCode(number, block));
+
+    Unit saved = units.save(u);
+    return ResponseEntity.ok(UnitDTO.from(saved));
   }
 
-  // PUT /units/{id}
   @PutMapping("/{id}")
   public ResponseEntity<?> update(@PathVariable Long id, @RequestBody UpdateUnitReq req) {
     String tenant = TenantContext.get();
@@ -84,15 +95,18 @@ public class UnitsController {
     String block  = norm(req.block());
     if (number.isBlank()) return ResponseEntity.badRequest().body(ErrorDTO.of("Número é obrigatório."));
 
-    boolean dup = units.existsDuplicate(tenant, u.getCondominiumId(), number, block.toLowerCase(), id);
+    String bLowerOrNull = block.isBlank() ? null : block.toLowerCase();
+    boolean dup = units.existsDuplicate(tenant, u.getCondominiumId(), number, bLowerOrNull, id);
     if (dup) return ResponseEntity.badRequest().body(ErrorDTO.of("Já existe uma unidade com esse número/bloco neste condomínio."));
 
     u.setNumber(number);
-    u.setBlock(block);
-    return ResponseEntity.ok(UnitDTO.from(units.save(u)));
+    u.setBlock(block.isBlank() ? null : block);
+    u.setCode(buildCode(number, block));
+
+    Unit saved = units.save(u);
+    return ResponseEntity.ok(UnitDTO.from(saved));
   }
 
-  // DELETE /units/{id}
   @DeleteMapping("/{id}")
   public ResponseEntity<?> delete(@PathVariable Long id) {
     String tenant = TenantContext.get();
