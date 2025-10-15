@@ -222,6 +222,7 @@ Se utilizar **Flyway** ou **Liquibase**, mantenha os scripts de migração em `b
 **Kauê Santos**  
 GitHub: https://github.com/kauessz  
 E-mail: ssz.kaue@gmail.com
+Demo pública: https://condo-landing.netlify.app
 
 ---
 
