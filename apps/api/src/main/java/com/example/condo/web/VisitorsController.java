@@ -8,6 +8,8 @@ import com.example.condo.tenant.TenantContext;
 import org.springframework.data.domain.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.*;
 import java.util.List;
@@ -29,6 +31,7 @@ public class VisitorsController {
   }
 
   public record PageResp<T>(List<T> items, long total, int page, int pageSize) {}
+
   public record VisitorDTO(
       Long id,
       String tenantId,
@@ -40,6 +43,8 @@ public class VisitorsController {
       String phone,
       String email,
       String note,
+      String carrier,
+      Integer packages,
       Instant checkInAt,
       Instant checkOutAt,
       Visitor.Status status,
@@ -51,6 +56,7 @@ public class VisitorsController {
       Instant expectedOutAt
   ) {}
 
+  // ✅ agora inclui carrier e packages
   public record CreateVisitorReq(
       Long condominiumId,
       Long unitId,
@@ -60,12 +66,15 @@ public class VisitorsController {
       String phone,
       String email,
       String note,
+      String carrier,
+      Integer packages,
       Instant checkInAt,
       Instant expectedInAt,
       Visitor.Status status,
       Visitor.Type type
   ) {}
 
+  // ✅ idem para update
   public record UpdateVisitorReq(
       Long unitId,
       String name,
@@ -74,6 +83,8 @@ public class VisitorsController {
       String phone,
       String email,
       String note,
+      String carrier,
+      Integer packages,
       Instant checkInAt,
       Instant checkOutAt,
       Visitor.Status status,
@@ -85,53 +96,9 @@ public class VisitorsController {
       Instant expectedOutAt
   ) {}
 
-  private VisitorDTO toDTO(Visitor v) {
-    return new VisitorDTO(
-        v.getId(), v.getTenantId(), v.getCondominiumId(), v.getUnitId(),
-        v.getName(), v.getDocument(), v.getPlate(), v.getPhone(), v.getEmail(), v.getNote(),
-        v.getCheckInAt(), v.getCheckOutAt(), v.getStatus(), v.getType(),
-        v.getApprovedAt(), v.getApprovedBy(), v.getRejectionReason(),
-        v.getExpectedInAt(), v.getExpectedOutAt()
-    );
-  }
-
-  @GetMapping
-  public PageResp<VisitorDTO> list(
-      @RequestParam(name = "condoId") Long condoId,
-      @RequestParam(name = "unitId", required = false) Long unitId,
-      @RequestParam(name = "q", required = false) String q,
-      @RequestParam(name = "from", required = false) String from,
-      @RequestParam(name = "to", required = false) String to,
-      @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "8") int pageSize,
-      @RequestParam(defaultValue = "checkInAt") String sortBy,
-      @RequestParam(defaultValue = "desc") String sortDir,
-      @RequestHeader(value = "X-Tenant", required = false) String tenantHeader
-  ) {
-    final String tenant = (tenantHeader == null || tenantHeader.isBlank())
-        ? TenantContext.get() : tenantHeader.trim();
-
-    Sort sort = Sort.by(
-        "desc".equalsIgnoreCase(sortDir) ? Sort.Direction.DESC : Sort.Direction.ASC,
-        mapSort(sortBy)
-    );
-    Pageable pageable = PageRequest.of(page, pageSize, sort);
-
-    Instant fromTs = parseInstantFromLocalDateTimeISO(from);
-    Instant toTs   = parseInstantFromLocalDateTimeISO(to);
-
-    Page<Visitor> p = visitors.search(
-        tenant,
-        condoId,
-        unitId,
-        (q == null || q.isBlank()) ? null : q.trim(),
-        fromTs,
-        toTs,
-        pageable
-    );
-
-    List<VisitorDTO> items = p.map(this::toDTO).getContent();
-    return new PageResp<>(items, p.getTotalElements(), p.getNumber(), p.getSize());
+  private static String currentUsername() {
+    Authentication a = SecurityContextHolder.getContext().getAuthentication();
+    return (a != null && a.isAuthenticated() && a.getName() != null) ? a.getName() : "system";
   }
 
   private static String mapSort(String sortBy) {
@@ -158,13 +125,73 @@ public class VisitorsController {
     }
   }
 
+  private static String resolveTenant(String tenantHeader) {
+    return (tenantHeader == null || tenantHeader.isBlank())
+        ? TenantContext.get()
+        : tenantHeader.trim();
+  }
+
+  private VisitorDTO toDTO(Visitor v) {
+    return new VisitorDTO(
+        v.getId(), v.getTenantId(), v.getCondominiumId(), v.getUnitId(),
+        v.getName(), v.getDocument(), v.getPlate(), v.getPhone(), v.getEmail(), v.getNote(),
+        v.getCarrier(), v.getPackages(),
+        v.getCheckInAt(), v.getCheckOutAt(), v.getStatus(), v.getType(),
+        v.getApprovedAt(), v.getApprovedBy(), v.getRejectionReason(),
+        v.getExpectedInAt(), v.getExpectedOutAt()
+    );
+  }
+
+  @GetMapping
+  public PageResp<VisitorDTO> list(
+      @RequestParam(name = "condoId", required = false) Long condoId,
+      @RequestParam(name = "condominiumId", required = false) Long condoId2,
+      @RequestParam(name = "unitId", required = false) Long unitId,
+      @RequestParam(name = "q", required = false) String q,
+      @RequestParam(name = "from", required = false) String from,
+      @RequestParam(name = "to", required = false) String to,
+      @RequestParam(name = "status", required = false) Visitor.Status status,
+      @RequestParam(name = "type", required = false) Visitor.Type type,
+      @RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "8") int pageSize,
+      @RequestParam(defaultValue = "checkInAt") String sortBy,
+      @RequestParam(defaultValue = "desc") String sortDir,
+      @RequestHeader(value = "X-Tenant", required = false) String tenantHeader
+  ) {
+    final String tenant = resolveTenant(tenantHeader);
+    final Long condo = (condoId != null) ? condoId : condoId2;
+
+    Sort sort = Sort.by(
+        "desc".equalsIgnoreCase(sortDir) ? Sort.Direction.DESC : Sort.Direction.ASC,
+        mapSort(sortBy)
+    );
+    Pageable pageable = PageRequest.of(page, pageSize, sort);
+
+    Instant fromTs = parseInstantFromLocalDateTimeISO(from);
+    Instant toTs   = parseInstantFromLocalDateTimeISO(to);
+
+    Page<Visitor> p = visitors.search(
+        tenant,
+        condo,
+        unitId,
+        (q == null || q.isBlank()) ? null : q.trim(),
+        fromTs,
+        toTs,
+        status,
+        type,
+        pageable
+    );
+
+    List<VisitorDTO> items = p.map(this::toDTO).getContent();
+    return new PageResp<>(items, p.getTotalElements(), p.getNumber(), p.getSize());
+  }
+
   @PostMapping
   public ResponseEntity<?> create(
       @RequestBody CreateVisitorReq req,
       @RequestHeader(value = "X-Tenant", required = false) String tenantHeader
   ) {
-    final String tenant = (tenantHeader == null || tenantHeader.isBlank())
-        ? TenantContext.get() : tenantHeader.trim();
+    final String tenant = resolveTenant(tenantHeader);
 
     if (tenant == null || tenant.isBlank()) {
       return ResponseEntity.status(403).body(Map.of("error", "tenant_required"));
@@ -195,6 +222,10 @@ public class VisitorsController {
     v.setEmail(req.email() == null ? null : req.email().trim());
     v.setNote(req.note() == null ? null : req.note().trim());
 
+    // ✅ grava transportadora e volumes (somente faz sentido p/ DELIVERY, mas gravar não machuca)
+    v.setCarrier(req.carrier() == null ? null : req.carrier().trim());
+    v.setPackages(req.packages());
+
     v.setCheckInAt(req.checkInAt() != null ? req.checkInAt() : Instant.now());
     v.setExpectedInAt(req.expectedInAt());
 
@@ -211,8 +242,7 @@ public class VisitorsController {
       @RequestBody UpdateVisitorReq req,
       @RequestHeader(value = "X-Tenant", required = false) String tenantHeader
   ) {
-    final String tenant = (tenantHeader == null || tenantHeader.isBlank())
-        ? TenantContext.get() : tenantHeader.trim();
+    final String tenant = resolveTenant(tenantHeader);
 
     Optional<Visitor> opt = visitors.findByTenantIdAndId(tenant, id);
     if (opt.isEmpty()) return ResponseEntity.status(404).body(Map.of("error", "not_found"));
@@ -225,6 +255,9 @@ public class VisitorsController {
     if (req.phone() != null) v.setPhone(req.phone().trim());
     if (req.email() != null) v.setEmail(req.email().trim());
     if (req.note() != null) v.setNote(req.note().trim());
+
+    if (req.carrier() != null) v.setCarrier(req.carrier().trim());
+    if (req.packages() != null) v.setPackages(req.packages());
 
     if (req.unitId() != null) {
       Long condoId = v.getCondominiumId();
@@ -252,13 +285,84 @@ public class VisitorsController {
       @PathVariable Long id,
       @RequestHeader(value = "X-Tenant", required = false) String tenantHeader
   ) {
-    final String tenant = (tenantHeader == null || tenantHeader.isBlank())
-        ? TenantContext.get() : tenantHeader.trim();
+    final String tenant = resolveTenant(tenantHeader);
 
     Optional<Visitor> opt = visitors.findByTenantIdAndId(tenant, id);
     if (opt.isEmpty()) return ResponseEntity.status(404).body(Map.of("error", "not_found"));
 
     visitors.delete(opt.get());
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/{id}/approve")
+  public ResponseEntity<?> approve(
+      @PathVariable Long id,
+      @RequestHeader(value = "X-Tenant", required = false) String tenantHeader,
+      @RequestBody(required = false) Map<String, String> body
+  ) {
+    final String tenant = resolveTenant(tenantHeader);
+    Optional<Visitor> opt = visitors.findByTenantIdAndId(tenant, id);
+    if (opt.isEmpty()) return ResponseEntity.status(404).body(Map.of("error", "not_found"));
+
+    var v = opt.get();
+    v.setStatus(Visitor.Status.APPROVED);
+    v.setApprovedAt(Instant.now());
+    v.setApprovedBy(currentUsername());
+    v.setRejectionReason(null);
+    visitors.save(v);
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/{id}/reject")
+  public ResponseEntity<?> reject(
+      @PathVariable Long id,
+      @RequestHeader(value = "X-Tenant", required = false) String tenantHeader,
+      @RequestBody(required = false) Map<String, String> body
+  ) {
+    final String tenant = resolveTenant(tenantHeader);
+    Optional<Visitor> opt = visitors.findByTenantIdAndId(tenant, id);
+    if (opt.isEmpty()) return ResponseEntity.status(404).body(Map.of("error", "not_found"));
+
+    var v = opt.get();
+    v.setStatus(Visitor.Status.REJECTED);
+    v.setApprovedAt(null);
+    v.setApprovedBy(null);
+    v.setRejectionReason(body != null ? body.getOrDefault("reason", null) : null);
+    visitors.save(v);
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/{id}/checkout")
+  public ResponseEntity<?> checkout(
+      @PathVariable Long id,
+      @RequestHeader(value = "X-Tenant", required = false) String tenantHeader,
+      @RequestBody(required = false) Map<String, Object> body
+  ) {
+    final String tenant = resolveTenant(tenantHeader);
+    Optional<Visitor> opt = visitors.findByTenantIdAndId(tenant, id);
+    if (opt.isEmpty()) return ResponseEntity.status(404).body(Map.of("error", "not_found"));
+
+    var v = opt.get();
+    v.setCheckOutAt(Instant.now());
+    v.setStatus(Visitor.Status.CHECKED_OUT);
+    visitors.save(v);
+    return ResponseEntity.noContent().build();
+  }
+
+  @PostMapping("/{id}/handoff")
+  public ResponseEntity<?> handoff(
+      @PathVariable Long id,
+      @RequestHeader(value = "X-Tenant", required = false) String tenantHeader,
+      @RequestBody(required = false) Map<String, Object> body
+  ) {
+    final String tenant = resolveTenant(tenantHeader);
+    Optional<Visitor> opt = visitors.findByTenantIdAndId(tenant, id);
+    if (opt.isEmpty()) return ResponseEntity.status(404).body(Map.of("error", "not_found"));
+
+    var v = opt.get();
+    v.setCheckOutAt(Instant.now());
+    v.setStatus(Visitor.Status.CHECKED_OUT);
+    visitors.save(v);
     return ResponseEntity.noContent().build();
   }
 }

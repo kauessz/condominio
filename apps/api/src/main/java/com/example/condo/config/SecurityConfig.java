@@ -74,13 +74,13 @@ public class SecurityConfig {
                 "/residents/**", "/visitors/**"
             ).hasRole("ADMIN")
 
-            // PUT e PATCH precisam de chamadas separadas
             .requestMatchers(HttpMethod.PUT,
                 "/api/condominiums/**", "/api/units/**",
                 "/api/residents/**", "/api/visitors/**",
                 "/condominiums/**", "/units/**",
                 "/residents/**", "/visitors/**"
             ).hasRole("ADMIN")
+
             .requestMatchers(HttpMethod.PATCH,
                 "/api/condominiums/**", "/api/units/**",
                 "/api/residents/**", "/api/visitors/**",
@@ -105,10 +105,17 @@ public class SecurityConfig {
   @Bean
   CorsConfigurationSource corsConfigurationSource() {
     var c = new CorsConfiguration();
-    c.setAllowedOrigins(List.of("http://localhost:5173", "http://127.0.0.1:5173"));
+    // Ajuste as origens conforme seu ambiente
+    c.setAllowedOrigins(List.of(
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://192.168.0.122:5173",
+        "https://condo-landing.netlify.app"
+    ));
     c.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     c.setAllowedHeaders(List.of("*"));
-    c.setExposedHeaders(List.of("Authorization"));
+    // expõe também o X-Auth-Error para o front saber o motivo de 401
+    c.setExposedHeaders(List.of("Authorization", "X-Auth-Error"));
     c.setAllowCredentials(false);
     c.setMaxAge(3600L);
 

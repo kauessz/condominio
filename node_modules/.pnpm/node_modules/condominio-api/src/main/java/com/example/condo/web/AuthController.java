@@ -8,7 +8,9 @@ import org.springframework.web.bind.annotation.*;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Base64;
+import java.util.Date;
 import java.util.Map;
 
 import io.jsonwebtoken.Jwts;
@@ -42,7 +44,7 @@ public class AuthController {
   public ResponseEntity<?> login(@RequestBody LoginReq body,
                                  @RequestHeader(value = "X-Tenant", required = false) String tenantHeader) {
 
-    // EXEMPLO simples: autenticação em memória para admin demo
+    // DEV: autenticação simples em memória
     String email = body.email().trim().toLowerCase();
     String password = body.password().trim();
 
@@ -52,30 +54,36 @@ public class AuthController {
 
     String tenant = (tenantHeader == null || tenantHeader.isBlank()) ? "demo" : tenantHeader.trim();
     String role = "ADMIN";
+    String[] roles = new String[] { role };
 
     SecretKey key = resolveKeyOrNull(jwtSecret);
     if (key == null) {
       return ResponseEntity.status(500).body(Map.of("error", "jwt_secret_not_configured"));
     }
 
-    long nowSec = System.currentTimeMillis() / 1000L;
-    long expSec = nowSec + (expirationMinutes * 60);
+    Instant now = Instant.now();
+    Instant exp = now.plusSeconds(expirationMinutes * 60L);
 
     String token = Jwts.builder()
         .setSubject(email)
-        .claim("role", role)
+        .claim("role", role)          // compat
+        .claim("roles", roles)        // preferível
+        .claim("tenant", tenant)
         .setIssuer(issuer)
-        .setIssuedAt(new java.util.Date(nowSec * 1000L))
-        .setExpiration(new java.util.Date(expSec * 1000L))
+        .setIssuedAt(Date.from(now))
+        .setExpiration(Date.from(exp))
         .signWith(key, SignatureAlgorithm.HS256)
         .compact();
 
-    // Retorna token (e accessToken por compat), mais infos úteis
+    // Retorna token e metadados úteis ao front
     return ResponseEntity.ok(Map.of(
         "token", token,
-        "accessToken", token,   // alias
+        "accessToken", token,        // alias
+        "tokenType", "Bearer",
+        "role", role,
+        "roles", roles,
         "tenant", tenant,
-        "role", role
+        "expiresAt", exp.getEpochSecond()
     ));
   }
 }

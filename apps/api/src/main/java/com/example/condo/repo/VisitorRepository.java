@@ -14,15 +14,21 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
 
   @Query("""
          select v from Visitor v
-          where v.tenantId = :t and v.condominiumId = :c
+          where v.tenantId = :t
+            and v.condominiumId = :c
             and (:unitId is null or v.unitId = :unitId)
-            and (:from is null or v.checkInAt >= :from)
-            and (:to   is null or v.checkInAt <  :to)
+            and v.checkInAt >= coalesce(:from, v.checkInAt)
+            and v.checkInAt <= coalesce(:to,   v.checkInAt)
+            and (:status is null or v.status = :status)
+            and (:type   is null or v.type   = :type)
+            and v.deletedAt is null
             and (
                  :q is null or :q = '' or
-                 lower(v.name)     like lower(concat('%', :q, '%')) or
-                 lower(v.document) like lower(concat('%', :q, '%')) or
-                 lower(v.phone)    like lower(concat('%', :q, '%'))
+                 lower(v.name)                   like lower(concat('%', :q, '%')) or
+                 lower(coalesce(v.document, '')) like lower(concat('%', :q, '%')) or
+                 lower(coalesce(v.phone,    '')) like lower(concat('%', :q, '%')) or
+                 lower(coalesce(v.plate,    '')) like lower(concat('%', :q, '%')) or
+                 lower(coalesce(v.carrier,  '')) like lower(concat('%', :q, '%'))
             )
          """)
   Page<Visitor> search(@Param("t") String tenantId,
@@ -31,6 +37,8 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
                        @Param("q") String q,
                        @Param("from") Instant from,
                        @Param("to") Instant to,
+                       @Param("status") Visitor.Status status,
+                       @Param("type") Visitor.Type type,
                        Pageable pageable);
 
   Page<Visitor> findByTenantIdAndCondominiumId(String tenantId, Long condominiumId, Pageable pageable);
@@ -49,4 +57,26 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
          """)
   long countPendingByCondo(@Param("t") String tenantId,
                            @Param("c") Long condoId);
+
+  @Query("""
+         select count(v) from Visitor v
+          where v.tenantId = :t
+            and v.condominiumId = :c
+            and v.type = com.example.condo.entity.Visitor$Type.DELIVERY
+            and v.status = com.example.condo.entity.Visitor$Status.PENDING
+            and v.deletedAt is null
+         """)
+  long countPendingDeliveriesByCondo(@Param("t") String tenantId,
+                                     @Param("c") Long condoId);
+
+  @Query("""
+         select coalesce(sum(v.packages), 0) from Visitor v
+          where v.tenantId = :t
+            and v.condominiumId = :c
+            and v.type = com.example.condo.entity.Visitor$Type.DELIVERY
+            and v.status = com.example.condo.entity.Visitor$Status.PENDING
+            and v.deletedAt is null
+         """)
+  long sumPendingDeliveryPackagesByCondo(@Param("t") String tenantId,
+                                         @Param("c") Long condoId);
 }

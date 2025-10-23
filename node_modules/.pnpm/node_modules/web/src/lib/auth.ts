@@ -7,8 +7,18 @@ const LS_TENANT = "condo:tenant";
 
 let _user: User | null = null;
 
+function readAnyToken(): string {
+  // compatibilidade: se em algum fluxo gravou em "token" ou "accessToken", ainda funciona
+  return (
+    localStorage.getItem(LS_TOKEN) ||
+    localStorage.getItem("token") ||
+    localStorage.getItem("accessToken") ||
+    ""
+  );
+}
+
 export function loadAuthFromStorage() {
-  const token = localStorage.getItem(LS_TOKEN) || "";
+  const token = readAnyToken();
   const raw = localStorage.getItem(LS_USER);
   const tenant = localStorage.getItem(LS_TENANT) || "demo";
   _user = raw ? (JSON.parse(raw) as User) : null;
@@ -16,7 +26,12 @@ export function loadAuthFromStorage() {
 }
 
 export function saveAuth(token: string, user: User, tenant: string = "demo") {
+  if (!token) return;
+  // grava nas três chaves para não haver desencontro em fluxos antigos
   localStorage.setItem(LS_TOKEN, token);
+  localStorage.setItem("token", token);
+  localStorage.setItem("accessToken", token);
+
   localStorage.setItem(LS_USER, JSON.stringify(user));
   localStorage.setItem(LS_TENANT, tenant);
   _user = user;
@@ -26,11 +41,14 @@ export function clearAuth() {
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_USER);
   localStorage.removeItem(LS_TENANT);
+  // também limpar eventuais chaves “legadas”
+  localStorage.removeItem("token");
+  localStorage.removeItem("accessToken");
   _user = null;
 }
 
 export function getToken() {
-  return localStorage.getItem(LS_TOKEN) || "";
+  return readAnyToken();
 }
 
 export function getTenant() {

@@ -11,7 +11,15 @@ import java.security.Key;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.List;
+import java.util.Objects;
 
+/**
+ * Utilitário para gerar e validar JWTs.
+ * - Aceita segredo em texto ou em Base64 com prefixo "base64:".
+ * - Gera tokens com o claim "roles" (lista) e, por compatibilidade, também "role" (string).
+ *   O JwtAuthFilter aceita qualquer um dos dois.
+ */
 public class JwtUtils {
 
   private static byte[] resolveSecretBytes(String secret) {
@@ -25,14 +33,41 @@ public class JwtUtils {
     return secret.getBytes(StandardCharsets.UTF_8);
   }
 
-  public static String createToken(String subject, String role, String issuer,
-                                   String secret, int expirationMinutes) {
-    byte[] keyBytes = resolveSecretBytes(secret);     // >= 32 bytes
+  /**
+   * Assinatura original (compatibilidade): um único papel.
+   */
+  public static String createToken(String subject,
+                                   String role,
+                                   String issuer,
+                                   String secret,
+                                   int expirationMinutes) {
+    return createToken(subject,
+        role == null ? List.of("USER") : List.of(role),
+        issuer, secret, expirationMinutes);
+  }
+
+  /**
+   * Nova assinatura: múltiplos papéis.
+   * Grava "roles" (lista) e também "role" (primeiro da lista) por compatibilidade.
+   */
+  public static String createToken(String subject,
+                                   List<String> roles,
+                                   String issuer,
+                                   String secret,
+                                   int expirationMinutes) {
+    byte[] keyBytes = resolveSecretBytes(secret); // >= 32 bytes
     Key key = Keys.hmacShaKeyFor(keyBytes);
     Instant now = Instant.now();
+
+    // papel principal (usado em "role" por compatibilidade)
+    String primaryRole = roles == null || roles.isEmpty()
+        ? "USER"
+        : roles.stream().filter(Objects::nonNull).findFirst().orElse("USER");
+
     return Jwts.builder()
         .setSubject(subject)
-        .claim("role", role)
+        .claim("roles", roles == null || roles.isEmpty() ? List.of("USER") : roles)
+        .claim("role", primaryRole)
         .setIssuer(issuer)
         .setIssuedAt(Date.from(now))
         .setExpiration(Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES)))

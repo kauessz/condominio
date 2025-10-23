@@ -2,16 +2,10 @@ spring:
   profiles:
     active: dev
 
-  web:
-    cors:
-      allowed-origins: "http://localhost:5173"
-      allowed-methods: "*"
-      allowed-headers: "*"
-
   datasource:
     url: "jdbc:postgresql://127.0.0.1:5432/condo_saas"
-    username: "postgres"              # alinhado com seu .env do compose
-    password: "postgres"              # alinhado com seu .env do compose
+    username: "postgres"
+    password: "postgres"
     driver-class-name: org.postgresql.Driver
 
   flyway:
@@ -23,7 +17,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: validate               # use validate/create/update conforme seu fluxo
+      ddl-auto: validate
     properties:
       hibernate:
         format_sql: true
@@ -35,7 +29,6 @@ server:
 app:
   jwt:
     issuer: condo
-    # Em dev, pode deixar assim ou externalizar via argumento (ver abaixo)
     secret: base64:YVD/WK/nr7LjsYsXjKqTfbEtaOTmwX6VE+obKhI0gVY=
     expirationMinutes: 120
 
@@ -44,5 +37,4 @@ logging:
     com.zaxxer.hikari: DEBUG
     org.springframework.jdbc.datasource: DEBUG
     org.flywaydb.core: DEBUG
-    # Se quiser detalhar o motivo do 403:
     org.springframework.security: DEBUG

@@ -49,7 +49,7 @@ api.interceptors.request.use((config) => {
       ? !!cfg.skipAuthRedirect
       : headers && headers["X-Skip-Auth-Redirect"] !== undefined
       ? !!headers["X-Skip-Auth-Redirect"]
-      : true;
+      : false;
 
   if (!noAuth) {
     const tok = normalizeToken(getToken());
@@ -77,8 +77,23 @@ api.interceptors.response.use(
       !!headers["X-Skip-Auth-Redirect"] || !!headers["No-Auth"];
 
     if (status === 401 && !/\/auth\/login/i.test(url) && !skipRedirect) {
-      clearAuth();
-      location.replace("/");
+      // tenta identificar o motivo do 401
+      const reasonHeader = err?.response?.headers?.["x-auth-error"];
+      const reasonBody = err?.response?.data?.error;
+      const reason = String((reasonHeader || reasonBody || "")).toLowerCase();
+
+      // somente "derruba" a sessão para problemas reais de token
+      const hardReasons = new Set([
+        "unauthorized",
+        "bad_issuer",
+        "jwt_secret_not_configured",
+        "no_subject",
+      ]);
+
+      if (hardReasons.has(reason)) {
+        clearAuth();
+        location.replace("/");
+      }
     }
     return Promise.reject(err);
   }
