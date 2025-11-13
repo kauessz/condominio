@@ -8,16 +8,16 @@ import {
 
 import App from "./App";
 import RequireAuth from "./RequireAuth";
+// import ProtectedRoute from "./components/ProtectedRoute"; // Descomente quando for usar
 
 import Dashboard from "./pages/Dashboard";
 import Units from "./pages/Units";
 import Residents from "./pages/Residents";
 import Login from "./pages/Login";
-import "./styles/index.css";
 import Visitors from "./pages/Visitors";
 
-// ⬇️ importe e use o ToastProvider
 import { ToastProvider } from "./components/Toast";
+import "./styles/index.css";
 
 const router = createBrowserRouter([
   // Login direto em "/"
@@ -26,7 +26,7 @@ const router = createBrowserRouter([
   // (opcional) manter /login como alias
   { path: "/login", element: <Login /> },
 
-  // área protegida sob /app
+  // Área protegida sob /app
   {
     path: "/app",
     element: (
@@ -38,21 +38,76 @@ const router = createBrowserRouter([
       // /app → redireciona para /app/dashboard
       { index: true, element: <Navigate to="dashboard" replace /> },
 
-      // --- Dashboard (agora existe /app/dashboard) ---
+      // --- Dashboard (todos os usuários autenticados) ---
       { path: "dashboard", element: <Dashboard /> },
 
-      // --- Unidades ---
-      { path: "units", element: <Units /> },             // /app/units   (?condoId=...)
-      { path: "condos/:id/units", element: <Units /> },  // /app/condos/:id/units
+      // --- Unidades (somente ADMIN pode criar/editar) ---
+      { 
+        path: "units", 
+        element: <Units /> 
+      },
+      { 
+        path: "condos/:id/units", 
+        element: <Units /> 
+      },
 
-      // --- Moradores ---
-      { path: "residents", element: <Residents /> },             // /app/residents
-      { path: "condos/:id/residents", element: <Residents /> },  // /app/condos/:id/residents
+      // --- Moradores (somente ADMIN pode criar/editar) ---
+      { 
+        path: "residents", 
+        element: <Residents /> 
+      },
+      { 
+        path: "condos/:id/residents", 
+        element: <Residents /> 
+      },
 
-      // --- Visitantes ---
-      { path: "visitors", element: <Visitors /> },            // /app/visitors?condoId=...
-      { path: "condos/:id/visitors", element: <Visitors /> }, // opcional
+      // --- Visitantes (ADMIN e STAFF podem gerenciar) ---
+      { 
+        path: "visitors", 
+        element: <Visitors /> 
+      },
+      { 
+        path: "condos/:id/visitors", 
+        element: <Visitors /> 
+      },
 
+      // --- EXEMPLO: Rota protegida apenas para ADMIN ---
+      // Descomente quando criar a página de administração e descomentar o import do ProtectedRoute
+      /*
+      { 
+        path: "admin", 
+        element: (
+          <ProtectedRoute allowedRoles={['ADMIN']}>
+            <AdminPanel />
+          </ProtectedRoute>
+        )
+      },
+      */
+
+      // --- EXEMPLO: Rota para RESIDENT (morador) ---
+      // Descomente quando criar a área do morador
+      /*
+      { 
+        path: "my-unit", 
+        element: (
+          <ProtectedRoute allowedRoles={['RESIDENT']}>
+            <MyUnit />
+          </ProtectedRoute>
+        )
+      },
+      */
+
+      // --- EXEMPLO: Rota para STAFF (porteiro) ---
+      /*
+      { 
+        path: "check-in", 
+        element: (
+          <ProtectedRoute allowedRoles={['STAFF', 'ADMIN']}>
+            <CheckIn />
+          </ProtectedRoute>
+        )
+      },
+      */
     ],
   },
 

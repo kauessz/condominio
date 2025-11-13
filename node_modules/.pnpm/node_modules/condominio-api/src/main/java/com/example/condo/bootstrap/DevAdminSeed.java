@@ -2,6 +2,7 @@ package com.example.condo.bootstrap;
 
 import com.example.condo.entity.User;
 import com.example.condo.repo.UserRepository;
+import com.example.condo.security.Role;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,7 +28,8 @@ public class DevAdminSeed implements CommandLineRunner {
         admin.setTenantId("demo");
         admin.setEmail("admin@demo.com");
         admin.setPasswordHash(encoder.encode("admin123"));
-        admin.setRole("ADMIN");
+        admin.setRole(Role.ADMIN); // ← Agora usa o enum Role
+        admin.setName("Admin Padrão"); // ← Adiciona nome
         users.save(admin);
         System.out.println("[seed] admin@demo.com criado (tenant=demo, senha=admin123)");
       }

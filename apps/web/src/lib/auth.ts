@@ -1,14 +1,22 @@
-export type Role = "ADMIN" | "MANAGER" | "RESIDENT";
+// apps/web/src/lib/auth.ts
+export type Role =
+  | "SUPER_ADMIN"
+  | "ADMIN"
+  | "MANAGER"
+  | "STAFF"
+  | "RESIDENT"
+  | "GUEST";
+  
 export type User = { id: string; name: string; email: string; role: Role };
 
 const LS_TOKEN = "condo:token";
 const LS_USER = "condo:user";
 const LS_TENANT = "condo:tenant";
+const LS_REFRESH = "condo:refresh";
 
 let _user: User | null = null;
 
 function readAnyToken(): string {
-  // compatibilidade: se em algum fluxo gravou em "token" ou "accessToken", ainda funciona
   return (
     localStorage.getItem(LS_TOKEN) ||
     localStorage.getItem("token") ||
@@ -21,16 +29,19 @@ export function loadAuthFromStorage() {
   const token = readAnyToken();
   const raw = localStorage.getItem(LS_USER);
   const tenant = localStorage.getItem(LS_TENANT) || "demo";
+  const refreshToken = localStorage.getItem(LS_REFRESH) || "";
   _user = raw ? (JSON.parse(raw) as User) : null;
-  return { token, user: _user, tenant };
+  return { token, user: _user, tenant, refreshToken };
 }
 
-export function saveAuth(token: string, user: User, tenant: string = "demo") {
+export function saveAuth(token: string, user: User, tenant: string = "demo", refresh?: string) {
   if (!token) return;
-  // grava nas três chaves para não haver desencontro em fluxos antigos
+  // grava nas três chaves para compat com fluxos antigos
   localStorage.setItem(LS_TOKEN, token);
   localStorage.setItem("token", token);
   localStorage.setItem("accessToken", token);
+
+  if (refresh) localStorage.setItem(LS_REFRESH, refresh);
 
   localStorage.setItem(LS_USER, JSON.stringify(user));
   localStorage.setItem(LS_TENANT, tenant);
@@ -41,14 +52,18 @@ export function clearAuth() {
   localStorage.removeItem(LS_TOKEN);
   localStorage.removeItem(LS_USER);
   localStorage.removeItem(LS_TENANT);
-  // também limpar eventuais chaves “legadas”
   localStorage.removeItem("token");
   localStorage.removeItem("accessToken");
+  localStorage.removeItem(LS_REFRESH);
   _user = null;
 }
 
 export function getToken() {
   return readAnyToken();
+}
+
+export function getRefreshToken() {
+  return localStorage.getItem(LS_REFRESH) || "";
 }
 
 export function getTenant() {
@@ -81,7 +96,13 @@ export function hasTenant(): boolean {
 export function can(action: "create" | "edit" | "delete") {
   const u = getUser();
   if (!u) return false;
-  if (u.role === "ADMIN") return true;
+
+  // SUPER_ADMIN e ADMIN fazem tudo
+  if (u.role === "SUPER_ADMIN" || u.role === "ADMIN") return true;
+
+  // MANAGER pode criar/editar mas não deletar
   if (u.role === "MANAGER") return action !== "delete";
+
+  // STAFF / RESIDENT / GUEST hoje não podem alterar nada crítico
   return false;
 }

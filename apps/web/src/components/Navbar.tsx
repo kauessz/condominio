@@ -1,8 +1,9 @@
 import { Link, NavLink, useNavigate } from "react-router-dom";
-import { getUser, clearAuth } from "../lib/auth";
+import { clearAuth } from "../lib/auth";
+import { useCurrentUser } from "../hooks/useCurrentUser";
 
 export default function Navbar() {
-  const user = getUser();
+  const { user, loading } = useCurrentUser();
   const nav = useNavigate();
 
   function logout() {
@@ -27,7 +28,9 @@ export default function Navbar() {
         </nav>
 
         <div className="ml-auto text-sm flex items-center gap-3">
-          {user ? (
+          {loading ? (
+            <span className="text-slate-400">Carregando...</span>
+          ) : user ? (
             <>
               <span className="text-slate-500">
                 {user.name ?? user.email} • <b>{user.role}</b>

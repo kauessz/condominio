@@ -5,15 +5,14 @@ import { useToast } from "../components/Toast";
 import { saveAuth, type User, type Role } from "../lib/auth";
 import api, { normalizeToken } from "../lib/api";
 
+// tenta extrair o token de vários formatos possíveis
 function pickToken(obj: any): string | undefined {
   if (!obj) return undefined;
-  // tenta variações comuns
   return (
     obj.accessToken ??
     obj.token ??
     obj.jwt ??
     obj.access_token ??
-    // às vezes vem dentro de "data"
     obj.data?.accessToken ??
     obj.data?.token ??
     obj.data?.jwt ??
@@ -25,6 +24,7 @@ export default function Login() {
   const nav = useNavigate();
   const toast = useToast();
 
+  // default já com admin demo pra facilitar o primeiro login
   const [email, setEmail] = useState("admin@demo.com");
   const [password, setPassword] = useState("admin123");
   const [loading, setLoading] = useState(false);
@@ -34,19 +34,22 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await api.post(
-        "/auth/login",
-        { email: email.trim(), password: password.trim() },
+        "/api/auth/login", // <-- rota nova correta do backend
+        {
+          email: email.trim(),
+          password: password.trim(),
+        },
         {
           headers: {
             "X-Tenant": "demo",
-            "X-Skip-Auth-Redirect": true,
+            "X-Skip-Auth-Redirect": "true",
           },
-          // por precaução, não trate 4xx/5xx como erro de rede
+          // não tratar 4xx/5xx como erro de rede
           validateStatus: () => true,
         }
       );
 
-      // se o backend retornar 4xx/5xx, mostre a mensagem vinda dele
+      // se backend respondeu erro explícito
       if (res.status < 200 || res.status >= 300) {
         const msg =
           res.data?.error ||
@@ -64,30 +67,32 @@ export default function Login() {
         toast.show({
           type: "error",
           msg:
-            "Token não retornado pelo servidor. Verifique o payload de /auth/login.",
+            "Token não retornado pelo servidor. Verifique o payload de /api/auth/login.",
         });
-        // Ajuda no debug: abra o console para ver o shape real
-        // eslint-disable-next-line no-console
-        console.warn("Resposta /auth/login sem token reconhecido:", data);
+        console.warn("Resposta /api/auth/login sem token reconhecido:", data);
         return;
       }
 
-      const roleFromApi: Role | undefined =
-        (data.role ??
-          data.user?.role ??
-          data.data?.role ??
-          data.data?.user?.role) as Role | undefined;
+      // o backend retorna "role": "SUPER_ADMIN" | "ADMIN" | "RESIDENT" ...
+      const roleFromApi: Role | undefined = (
+        data.role ??
+        data.user?.role ??
+        data.data?.role ??
+        data.data?.user?.role
+      ) as Role | undefined;
 
-      // Monte um "User" mínimo; ajuste se seu /auth/me retornar algo mais rico
+      // monta objeto user mínimo.
+      // se você quiser depois, você pode chamar /api/auth/me pra pegar name/id reais
       const user: User = {
-        id: String(data.user?.id ?? "admin"),
-        name: String(data.user?.name ?? "Admin"),
+        id: "admin", // fallback básico
+        name: "Admin",
         email: email.trim(),
         role: (roleFromApi ?? "ADMIN") as Role,
       };
 
-      // Salva e injeta
+      // salva no storage/localStorage
       saveAuth(tok, user, "demo");
+      // injeta token default no axios
       setToken(tok);
 
       toast.show({ type: "success", msg: "Login efetuado" });

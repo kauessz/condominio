@@ -12,6 +12,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.config.http.SessionCreationPolicy;
 
 import java.util.List;
 
@@ -30,15 +31,18 @@ public class SecurityConfig {
     http
         .csrf(csrf -> csrf.disable())
         .cors(Customizer.withDefaults())
+        .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 
         .exceptionHandling(e -> e
             .authenticationEntryPoint((req, res, ex) -> {
               res.setStatus(401);
+              res.setHeader("X-Auth-Error", "unauthorized");
               res.setContentType("application/json");
               res.getWriter().write("{\"error\":\"unauthorized\"}");
             })
             .accessDeniedHandler((req, res, ex) -> {
               res.setStatus(403);
+              res.setHeader("X-Auth-Error", "forbidden");
               res.setContentType("application/json");
               res.getWriter().write("{\"error\":\"forbidden\"}");
             }))
@@ -47,7 +51,7 @@ public class SecurityConfig {
             // Preflight
             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
-            // Público (login/health)
+            // Público (login/reset/health)
             .requestMatchers("/api/auth/**").permitAll()
             .requestMatchers("/auth/**").permitAll()
             .requestMatchers("/actuator/health").permitAll()
@@ -108,13 +112,10 @@ public class SecurityConfig {
     // Ajuste as origens conforme seu ambiente
     c.setAllowedOrigins(List.of(
         "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://192.168.0.122:5173",
-        "https://condo-landing.netlify.app"
+        "http://127.0.0.1:5173"
     ));
     c.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     c.setAllowedHeaders(List.of("*"));
-    // expõe também o X-Auth-Error para o front saber o motivo de 401
     c.setExposedHeaders(List.of("Authorization", "X-Auth-Error"));
     c.setAllowCredentials(false);
     c.setMaxAge(3600L);
