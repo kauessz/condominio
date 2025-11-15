@@ -1,118 +1,151 @@
 package com.example.condo.web;
 
-import com.example.condo.repo.UnitRepository;
-import com.example.condo.repo.UnitRepository.UnitCountView;
-import com.example.condo.entity.Unit;
-import com.example.condo.repo.CondominiumRepository;
-import com.example.condo.tenant.TenantContext;
+import com.example.condo.dto.unit.CreateUnitRequest;
+import com.example.condo.dto.unit.UpdateUnitRequest;
+import com.example.condo.dto.unit.UnitResponse;
+import com.example.condo.service.UnitService;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * Controller de unidades (apartamentos/casas).
+ *
+ * Endpoints:
+ * - GET    /units              -> Lista com paginação e busca
+ * - GET    /units/{id}         -> Detalhes de uma unidade
+ * - POST   /units              -> Criar unidade (ADMIN only)
+ * - PUT    /units/{id}         -> Atualizar unidade (ADMIN only)
+ * - DELETE /units/{id}         -> Deletar unidade (ADMIN only)
+ */
 @RestController
 @RequestMapping({"/units", "/api/units"})
 public class UnitsController {
 
-  private final UnitRepository units;
-  private final CondominiumRepository condos;
+    private final UnitService unitService;
 
-  public UnitsController(UnitRepository units, CondominiumRepository condos) {
-    this.units = units;
-    this.condos = condos;
-  }
-
-  private static String norm(String s) { return s == null ? "" : s.trim(); }
-
-  private static String buildCode(String number, String block) {
-    String n = norm(number);
-    String b = norm(block);
-    if (b.isEmpty()) return n;
-    return b.replaceAll("\\s+", "").toUpperCase() + "-" + n;
-  }
-
-  // DTOs/Reqs
-  public record UnitDTO(Long id, String number, String block, Long residentCount) {
-    public static UnitDTO from(Unit u) {
-      String b = (u.getBlock() == null || u.getBlock().isBlank()) ? null : u.getBlock();
-      return new UnitDTO(u.getId(), u.getNumber(), b, null);
-    }
-    public static UnitDTO fromCountView(UnitCountView v) {
-      String b = (v.getBlock() == null || v.getBlock().isBlank()) ? null : v.getBlock();
-      return new UnitDTO(v.getId(), v.getNumber(), b, v.getResidentCount() == null ? 0L : v.getResidentCount());
-    }
-  }
-  public record NewUnitReq(Long condoId, String number, String block) {}
-  public record UpdateUnitReq(String number, String block) {}
-  public record ErrorDTO(String error) { public static ErrorDTO of(String m){ return new ErrorDTO(m); } }
-
-  @GetMapping
-  public Page<UnitDTO> list(@RequestParam("condoId") Long condoId,
-                            @RequestParam(value = "q", required = false) String q,
-                            Pageable pageable) {
-    String tenant = TenantContext.get();
-    // usa a query com contagem
-    Page<UnitCountView> page = units.searchWithCount(tenant, condoId, q, pageable);
-    return page.map(UnitDTO::fromCountView);
-  }
-
-  @PostMapping
-  public ResponseEntity<?> create(@RequestBody NewUnitReq req) {
-    String tenant = TenantContext.get();
-
-    var c = condos.findByTenantIdAndId(tenant, req.condoId());
-    if (c.isEmpty()) {
-      return ResponseEntity.status(403).body(ErrorDTO.of("Condomínio não pertence ao tenant atual."));
+    public UnitsController(UnitService unitService) {
+        this.unitService = unitService;
     }
 
-    String number = norm(req.number());
-    String block  = norm(req.block());
-    if (number.isBlank()) return ResponseEntity.badRequest().body(ErrorDTO.of("Número é obrigatório."));
+    /**
+     * GET /units
+     *
+     * Lista unidades com paginação, busca e contador de moradores.
+     *
+     * Query params:
+     * - condoId: ID do condomínio (obrigatório)
+     * - q: termo de busca (opcional - busca em number, block, code)
+     * - page, size, sort: parâmetros de paginação Spring Data
+     *
+     * Resposta: Page<UnitResponse>
+     */
+    @GetMapping
+    public Page<UnitResponse> list(
+        @RequestParam("condoId") Long condominiumId,
+        @RequestParam(value = "q", required = false) String query,
+        Pageable pageable
+    ) {
+        return unitService.search(condominiumId, query, pageable);
+    }
 
-    String bLowerOrNull = block.isBlank() ? null : block.toLowerCase();
-    boolean dup = units.existsDuplicate(tenant, req.condoId(), number, bLowerOrNull, null);
-    if (dup) return ResponseEntity.badRequest().body(ErrorDTO.of("Já existe uma unidade com esse número/bloco neste condomínio."));
+    /**
+     * GET /units/{id}
+     *
+     * Busca detalhes de uma unidade.
+     *
+     * Erros:
+     * - 404: Unidade não encontrada
+     */
+    @GetMapping("/{id}")
+    public ResponseEntity<UnitResponse> getById(@PathVariable Long id) {
+        UnitResponse response = unitService.getById(id);
+        return ResponseEntity.ok(response);
+    }
 
-    Unit u = new Unit();
-    u.setTenantId(tenant);
-    u.setCondominiumId(req.condoId());
-    u.setNumber(number);
-    u.setBlock(block.isBlank() ? null : block);
-    u.setCode(buildCode(number, block));
+    /**
+     * POST /units
+     *
+     * Cria uma nova unidade.
+     *
+     * Requer role: ADMIN
+     *
+     * Body:
+     * {
+     *   "condominiumId": 1,
+     *   "number": "101",
+     *   "block": "A",
+     *   "code": "A-101" (opcional, gerado automaticamente)
+     * }
+     *
+     * Validações:
+     * - condominiumId: obrigatório
+     * - number: obrigatório, max 20 caracteres
+     * - block: opcional, max 20 caracteres
+     * - Não pode duplicar number + block no mesmo condomínio
+     *
+     * Resposta (201): UnitResponse
+     *
+     * Erros:
+     * - 404: Condomínio não encontrado
+     * - 422: Unidade duplicada
+     */
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UnitResponse> create(
+        @Valid @RequestBody CreateUnitRequest request
+    ) {
+        UnitResponse response = unitService.create(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
 
-    Unit saved = units.save(u);
-    return ResponseEntity.ok(UnitDTO.from(saved));
-  }
+    /**
+     * PUT /units/{id}
+     *
+     * Atualiza uma unidade existente (atualização parcial).
+     *
+     * Requer role: ADMIN
+     *
+     * Body (todos os campos opcionais):
+     * {
+     *   "number": "102",
+     *   "block": "B"
+     * }
+     *
+     * Erros:
+     * - 404: Unidade não encontrada
+     * - 422: Número/bloco duplicado
+     */
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<UnitResponse> update(
+        @PathVariable Long id,
+        @Valid @RequestBody UpdateUnitRequest request
+    ) {
+        UnitResponse response = unitService.update(id, request);
+        return ResponseEntity.ok(response);
+    }
 
-  @PutMapping("/{id}")
-  public ResponseEntity<?> update(@PathVariable Long id, @RequestBody UpdateUnitReq req) {
-    String tenant = TenantContext.get();
-    var uOpt = units.findByTenantIdAndId(tenant, id);
-    if (uOpt.isEmpty()) return ResponseEntity.status(404).body(ErrorDTO.of("Unidade não encontrada"));
-
-    Unit u = uOpt.get();
-    String number = norm(req.number());
-    String block  = norm(req.block());
-    if (number.isBlank()) return ResponseEntity.badRequest().body(ErrorDTO.of("Número é obrigatório."));
-
-    String bLowerOrNull = block.isBlank() ? null : block.toLowerCase();
-    boolean dup = units.existsDuplicate(tenant, u.getCondominiumId(), number, bLowerOrNull, id);
-    if (dup) return ResponseEntity.badRequest().body(ErrorDTO.of("Já existe uma unidade com esse número/bloco neste condomínio."));
-
-    u.setNumber(number);
-    u.setBlock(block.isBlank() ? null : block);
-    u.setCode(buildCode(number, block));
-
-    Unit saved = units.save(u);
-    return ResponseEntity.ok(UnitDTO.from(saved));
-  }
-
-  @DeleteMapping("/{id}")
-  public ResponseEntity<?> delete(@PathVariable Long id) {
-    String tenant = TenantContext.get();
-    var uOpt = units.findByTenantIdAndId(tenant, id);
-    if (uOpt.isEmpty()) return ResponseEntity.status(404).body(ErrorDTO.of("Unidade não encontrada"));
-    units.delete(uOpt.get());
-    return ResponseEntity.noContent().build();
-  }
+    /**
+     * DELETE /units/{id}
+     *
+     * Deleta uma unidade.
+     *
+     * Requer role: ADMIN
+     *
+     * Resposta (204): No Content
+     *
+     * Erros:
+     * - 404: Unidade não encontrada
+     */
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
+        unitService.delete(id);
+        return ResponseEntity.noContent().build();
+    }
 }
