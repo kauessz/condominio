@@ -57,25 +57,38 @@ public class VisitorService {
     ) {
         String tenantId = TenantContext.get();
 
-        Page<Object[]> page = visitorRepo.search(
+        // Converte strings para enums (se fornecidos)
+        Visitor.Status statusEnum = null;
+        if (status != null && !status.isBlank()) {
+            try {
+                statusEnum = Visitor.Status.valueOf(status.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new BusinessException("Status inválido. Valores aceitos: PENDING, APPROVED, REJECTED, CHECKED_OUT");
+            }
+        }
+
+        Visitor.Type typeEnum = null;
+        if (type != null && !type.isBlank()) {
+            try {
+                typeEnum = Visitor.Type.valueOf(type.toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new BusinessException("Tipo inválido. Valores aceitos: VISITOR, DELIVERY, SERVICE");
+            }
+        }
+
+        Page<Visitor> page = visitorRepo.search(
             tenantId,
             condominiumId,
             unitId,
-            status,
-            type,
+            null, // query de busca (não implementado no VisitorService ainda)
             dateFrom,
             dateTo,
+            statusEnum,
+            typeEnum,
             pageable
         );
 
-        return page.map(row -> {
-            Visitor visitor = (Visitor) row[0];
-            String unitCode = (String) row[1];
-            String unitNumber = (String) row[2];
-            String unitBlock = (String) row[3];
-
-            return VisitorResponse.withUnit(visitor, unitCode, unitNumber, unitBlock);
-        });
+        return page.map(VisitorResponse::from);
     }
 
     /**

@@ -2,7 +2,7 @@ package com.example.condo.dto.unit;
 
 import com.example.condo.entity.Unit;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * DTO para resposta de unidade.
@@ -14,7 +14,7 @@ public record UnitResponse(
     String code,
     String number,
     String block,
-    Instant createdAt
+    LocalDateTime createdAt
 ) {
 
     /**

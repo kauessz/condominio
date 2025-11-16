@@ -2,7 +2,7 @@ package com.example.condo.dto.condominium;
 
 import com.example.condo.entity.Condominium;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * DTO para resposta de condomínio (detalhes).
@@ -11,7 +11,7 @@ public record CondominiumResponse(
     Long id,
     String name,
     String cnpj,
-    Instant createdAt,
+    LocalDateTime createdAt,
     Long unitCount,
     Long residentCount
 ) {

@@ -48,6 +48,8 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
 
   Optional<Visitor> findByTenantIdAndId(String tenantId, Long id);
 
+  Optional<Visitor> findByTenantIdAndIdAndDeletedAtIsNull(String tenantId, Long id);
+
   @Query("""
          select count(v) from Visitor v
           where v.tenantId = :t

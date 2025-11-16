@@ -3,7 +3,7 @@ package com.example.condo.dto.auth;
 import com.example.condo.entity.User;
 import com.example.condo.security.Role;
 
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * DTO para resposta do endpoint /me (dados do usuário autenticado).
@@ -14,7 +14,7 @@ public record UserMeResponse(
     String name,
     Role role,
     String tenant,
-    Instant createdAt
+    LocalDateTime createdAt
 ) {
 
     public static UserMeResponse from(User user) {

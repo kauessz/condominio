@@ -19,7 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
-import java.time.Instant;
+import java.time.LocalDateTime;
 
 /**
  * Service para operações de condomínio.
@@ -62,7 +62,7 @@ public class CondominiumService {
                 Long id = ((Number) row[0]).longValue();
                 String name = (String) row[1];
                 String cnpj = (String) row[2];
-                Instant createdAt = ((Timestamp) row[3]).toInstant();
+                LocalDateTime createdAt = ((Timestamp) row[3]).toLocalDateTime();
                 long unitCount = ((Number) row[4]).longValue();
                 long residentCount = ((Number) row[5]).longValue();
 

@@ -5,6 +5,8 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
@@ -20,7 +22,22 @@ import java.util.Objects;
  * - Gera tokens com o claim "roles" (lista) e, por compatibilidade, também "role" (string).
  *   O JwtAuthFilter aceita qualquer um dos dois.
  */
+@Component
 public class JwtUtils {
+
+  private final String secret;
+  private final String issuer;
+  private final int expirationMinutes;
+
+  public JwtUtils(
+      @Value("${app.jwt.secret}") String secret,
+      @Value("${app.jwt.issuer:condo}") String issuer,
+      @Value("${app.jwt.expirationMinutes:120}") int expirationMinutes
+  ) {
+    this.secret = secret;
+    this.issuer = issuer;
+    this.expirationMinutes = expirationMinutes;
+  }
 
   private static byte[] resolveSecretBytes(String secret) {
     if (secret == null || secret.isBlank()) {
@@ -29,8 +46,29 @@ public class JwtUtils {
     if (secret.startsWith("base64:")) {
       return Decoders.BASE64.decode(secret.substring(7));
     }
-    // Se usar string “normal”, garanta >= 32 chars para HS256
+    // Se usar string "normal", garanta >= 32 chars para HS256
     return secret.getBytes(StandardCharsets.UTF_8);
+  }
+
+  /**
+   * Gera token JWT (método de instância para uso no AuthService).
+   * Adiciona claim "tenant" automaticamente.
+   */
+  public String generate(String email, String tenantId, String role) {
+    byte[] keyBytes = resolveSecretBytes(secret);
+    Key key = Keys.hmacShaKeyFor(keyBytes);
+    Instant now = Instant.now();
+
+    return Jwts.builder()
+        .setSubject(email)
+        .claim("tenant", tenantId)
+        .claim("role", role)
+        .claim("roles", List.of(role))
+        .setIssuer(issuer)
+        .setIssuedAt(Date.from(now))
+        .setExpiration(Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES)))
+        .signWith(key, SignatureAlgorithm.HS256)
+        .compact();
   }
 
   /**
