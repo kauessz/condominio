@@ -5,6 +5,8 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
@@ -16,11 +18,34 @@ import java.util.Objects;
 
 /**
  * Utilitário para gerar e validar JWTs.
- * - Aceita segredo em texto ou em Base64 com prefixo "base64:".
- * - Gera tokens com o claim "roles" (lista) e, por compatibilidade, também "role" (string).
- *   O JwtAuthFilter aceita qualquer um dos dois.
+ *
+ * Claims emitidos:
+ *   - sub          → email do usuário
+ *   - tenant       → tenantId
+ *   - role         → role principal (string)
+ *   - roles        → lista de roles (compatibilidade)
+ *   - condominiumId → ID do condomínio (null para SUPERUSER)
+ *   - unitId       → ID da unidade (não-null apenas para MORADOR)
+ *   - userId       → ID numérico do usuário no banco
+ *
+ * Aceita segredo em texto ou em Base64 com prefixo "base64:".
  */
+@Component
 public class JwtUtils {
+
+  private final String secret;
+  private final String issuer;
+  private final int expirationMinutes;
+
+  public JwtUtils(
+      @Value("${app.jwt.secret}") String secret,
+      @Value("${app.jwt.issuer:condo}") String issuer,
+      @Value("${app.jwt.expirationMinutes:120}") int expirationMinutes
+  ) {
+    this.secret = secret;
+    this.issuer = issuer;
+    this.expirationMinutes = expirationMinutes;
+  }
 
   private static byte[] resolveSecretBytes(String secret) {
     if (secret == null || secret.isBlank()) {
@@ -29,12 +54,51 @@ public class JwtUtils {
     if (secret.startsWith("base64:")) {
       return Decoders.BASE64.decode(secret.substring(7));
     }
-    // Se usar string “normal”, garanta >= 32 chars para HS256
     return secret.getBytes(StandardCharsets.UTF_8);
   }
 
   /**
-   * Assinatura original (compatibilidade): um único papel.
+   * Gera token JWT com claims de isolamento de tenant.
+   *
+   * @param email          e-mail / subject do token
+   * @param tenantId       tenant (string)
+   * @param role           role principal do usuário
+   * @param condominiumId  ID do condomínio (null para SUPERUSER)
+   * @param unitId         ID da unidade (null se não for MORADOR)
+   * @param userId         ID numérico do usuário no banco
+   */
+  public String generate(String email, String tenantId, String role,
+                         Long condominiumId, Long unitId, Long userId) {
+    byte[] keyBytes = resolveSecretBytes(secret);
+    Key key = Keys.hmacShaKeyFor(keyBytes);
+    Instant now = Instant.now();
+
+    return Jwts.builder()
+        .setSubject(email)
+        .claim("tenant", tenantId)
+        .claim("role", role)
+        .claim("roles", List.of(role))
+        .claim("condominiumId", condominiumId)
+        .claim("unitId", unitId)
+        .claim("userId", userId)
+        .setIssuer(issuer)
+        .setIssuedAt(Date.from(now))
+        .setExpiration(Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES)))
+        .signWith(key, SignatureAlgorithm.HS256)
+        .compact();
+  }
+
+  /**
+   * Sobrecarga legada sem condominiumId/unitId/userId (compatibilidade).
+   * @deprecated Use generate(email, tenantId, role, condominiumId, unitId, userId)
+   */
+  @Deprecated
+  public String generate(String email, String tenantId, String role) {
+    return generate(email, tenantId, role, null, null, null);
+  }
+
+  /**
+   * Assinatura estática original (compatibilidade): um único papel.
    */
   public static String createToken(String subject,
                                    String role,
@@ -47,19 +111,17 @@ public class JwtUtils {
   }
 
   /**
-   * Nova assinatura: múltiplos papéis.
-   * Grava "roles" (lista) e também "role" (primeiro da lista) por compatibilidade.
+   * Nova assinatura estática: múltiplos papéis.
    */
   public static String createToken(String subject,
                                    List<String> roles,
                                    String issuer,
                                    String secret,
                                    int expirationMinutes) {
-    byte[] keyBytes = resolveSecretBytes(secret); // >= 32 bytes
+    byte[] keyBytes = resolveSecretBytes(secret);
     Key key = Keys.hmacShaKeyFor(keyBytes);
     Instant now = Instant.now();
 
-    // papel principal (usado em "role" por compatibilidade)
     String primaryRole = roles == null || roles.isEmpty()
         ? "USER"
         : roles.stream().filter(Objects::nonNull).findFirst().orElse("USER");

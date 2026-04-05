@@ -1,5 +1,8 @@
 package com.example.condo.security;
 
+import com.example.condo.exception.TenantMismatchException;
+import com.example.condo.tenant.TenantContext;
+import com.example.condo.tenant.UserContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
@@ -30,13 +33,29 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
   private static final Logger log = LoggerFactory.getLogger(JwtAuthFilter.class);
 
+  /**
+   * Apenas estes endpoints públicos de auth ignoram o token.
+   * IMPORTANTE: /api/auth/me NÃO está aqui — precisa do JWT para identificar o usuário.
+   */
+  private static final Set<String> PUBLIC_AUTH_PATHS = Set.of(
+      "/api/auth/login",
+      "/api/auth/register",
+      "/api/auth/refresh",
+      "/api/auth/request-reset",
+      "/api/auth/reset",
+      "/auth/login",
+      "/auth/register",
+      "/auth/refresh",
+      "/api/onboarding/request",
+      "/onboarding/request"
+  );
+
   @Value("${app.jwt.secret:}")
   private String jwtSecret;
 
   @Value("${app.jwt.issuer:condo}")
   private String issuer;
 
-  // Se true, um issuer diferente causa 401; se false, apenas loga e segue
   @Value("${app.jwt.strict-issuer:false}")
   private boolean strictIssuer;
 
@@ -58,15 +77,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     final String path = request.getRequestURI();
 
-    // Endpoints públicos de auth
-    if (path.startsWith("/api/auth/") || path.startsWith("/auth/")) {
+    if (PUBLIC_AUTH_PATHS.contains(path)) {
       filterChain.doFilter(request, response);
       return;
     }
 
     String auth = request.getHeader("Authorization");
     if (auth == null || !auth.startsWith("Bearer ")) {
-      // Sem token -> segue; a SecurityChain responderá 401 em rotas protegidas
       filterChain.doFilter(request, response);
       return;
     }
@@ -81,7 +98,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     }
 
     try {
-      // Parse e validação do token
       Jws<Claims> jws = Jwts.parserBuilder()
           .setSigningKey(key)
           .setAllowedClockSkewSeconds(60)
@@ -90,7 +106,6 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
       Claims claims = jws.getBody();
 
-      // Checagem de issuer (opcionalmente estrita)
       String iss = claims.getIssuer();
       if (issuer != null && !issuer.isBlank() && !Objects.equals(issuer, iss)) {
         log.warn("JWT: issuer inválido. Esperado='{}' Recebido='{}' (strict={})", issuer, iss, strictIssuer);
@@ -100,35 +115,106 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
       }
 
-      String subject = claims.getSubject(); // ex: email
+      String subject = claims.getSubject();
       if (subject == null || subject.isBlank()) {
         log.warn("JWT: subject ausente");
         write401(response, "no_subject");
         return;
       }
 
-      // Aceita "role": "ADMIN" OU "roles": ["ADMIN","USER"] ou "roles": "ADMIN"
+      String tenantFromToken = claims.get("tenant", String.class);
+      if (tenantFromToken == null || tenantFromToken.isBlank()) {
+        log.warn("JWT: tenant claim ausente");
+        write401(response, "tenant_missing");
+        return;
+      }
+
+      String headerTenant = firstNonBlank(
+          request.getHeader("X-Tenant"),
+          request.getHeader("X-Tenant-ID")
+      );
+      if (headerTenant != null && !headerTenant.isBlank()
+          && !headerTenant.equalsIgnoreCase(tenantFromToken)) {
+        throw new TenantMismatchException(tenantFromToken, headerTenant);
+      }
+
       List<SimpleGrantedAuthority> authorities = extractAuthorities(claims);
       if (authorities.isEmpty()) {
-        // Apenas autenticado para GETs já basta; mas logamos para clareza
         log.debug("JWT: sem roles mapeadas; prosseguindo apenas autenticado");
       }
+
+      // Extrai role principal para UserContext
+      String primaryRole = extractPrimaryRole(claims);
+
+      // Extrai condominiumId do JWT (null para SUPERUSER)
+      Long condominiumId = extractLong(claims, "condominiumId");
+
+      // Extrai unitId do JWT (não-null apenas para MORADOR)
+      Long unitId = extractLong(claims, "unitId");
+
+      // Extrai userId do JWT
+      Long userId = extractLong(claims, "userId");
 
       UsernamePasswordAuthenticationToken authentication =
           new UsernamePasswordAuthenticationToken(subject, null, authorities);
 
       SecurityContextHolder.getContext().setAuthentication(authentication);
 
+      TenantContext.set(tenantFromToken.trim());
+      UserContext.set(new UserContext.Data(primaryRole, condominiumId, unitId, userId));
+
+      try {
+        filterChain.doFilter(request, response);
+      } finally {
+        TenantContext.clear();
+        UserContext.clear();
+      }
+
+    } catch (TenantMismatchException mismatch) {
+      log.warn("JWT: tenant mismatch token='{}' header='{}'",
+          mismatch.getExpectedTenant(), mismatch.getActualTenant());
+      write403(response, "tenant_mismatch");
     } catch (io.jsonwebtoken.JwtException | IllegalArgumentException e) {
-      // Token inválido/expirado -> 401
       log.warn("JWT inválido: {}", e.toString());
       write401(response, "unauthorized");
-      return;
     }
+  }
 
-    // Importante: deixe o resto da cadeia executar.
-    // Se o controller/repository lançar erro, ele NÃO vira 401 aqui.
-    filterChain.doFilter(request, response);
+  /**
+   * Extrai a role principal do JWT (o primeiro role sem o prefixo ROLE_).
+   */
+  private String extractPrimaryRole(Claims claims) {
+    Object rolesClaim = claims.get("roles");
+    if (rolesClaim == null) rolesClaim = claims.get("role");
+
+    if (rolesClaim instanceof Collection<?> col) {
+      for (Object o : col) {
+        if (o != null) {
+          String r = o.toString().toUpperCase(Locale.ROOT).strip();
+          return r.startsWith("ROLE_") ? r.substring(5) : r;
+        }
+      }
+    } else if (rolesClaim != null) {
+      String r = rolesClaim.toString().toUpperCase(Locale.ROOT).strip();
+      return r.startsWith("ROLE_") ? r.substring(5) : r;
+    }
+    return null;
+  }
+
+  /**
+   * Extrai um Long de um claim JWT (suporta Integer, Long e String).
+   */
+  private Long extractLong(Claims claims, String claimName) {
+    Object value = claims.get(claimName);
+    if (value == null) return null;
+    try {
+      if (value instanceof Integer i) return i.longValue();
+      if (value instanceof Long l) return l;
+      if (value instanceof String s && !s.isBlank()) return Long.parseLong(s);
+    } catch (NumberFormatException ignored) {
+      log.debug("JWT: claim '{}' não é um Long válido: {}", claimName, value);
+    }
+    return null;
   }
 
   private List<SimpleGrantedAuthority> extractAuthorities(Claims claims) {
@@ -160,8 +246,24 @@ public class JwtAuthFilter extends OncePerRequestFilter {
   private void write401(HttpServletResponse response, String msg) throws IOException {
     if (response.isCommitted()) return;
     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-    response.setHeader("X-Auth-Error", msg); // facilita diagnóstico no front
+    response.setHeader("X-Auth-Error", msg);
     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
     new ObjectMapper().writeValue(response.getOutputStream(), Map.of("error", msg));
+  }
+
+  private void write403(HttpServletResponse response, String msg) throws IOException {
+    if (response.isCommitted()) return;
+    response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+    response.setHeader("X-Auth-Error", msg);
+    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+    new ObjectMapper().writeValue(response.getOutputStream(), Map.of("error", msg));
+  }
+
+  private String firstNonBlank(String... values) {
+    if (values == null) return null;
+    for (String v : values) {
+      if (v != null && !v.isBlank()) return v;
+    }
+    return null;
   }
 }
