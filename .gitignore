@@ -1,40 +1,5 @@
-node_modules/
-
-# Monorepo build outputs
-dist/
-build/
-.turbo/
-.cache/
-
-# Java / Spring Boot
-*.class
-*.jar
-*.war
-*.ear
-target/
-!.mvn/wrapper/maven-wrapper.jar
-
-# Logs and runtime artifacts
-*.log
-*.out
-*.err
-*.pid
-hs_err_pid*
-replay_pid*
-logs/
-
-# Local environment files
-.env
-.env.*
-!.env.example
-*.local
-
-# IDE and OS noise
-.idea/
-.vscode/
-*.iml
-.DS_Store
-Thumbs.db
-
-# Local-only tooling not used as production source of truth
-supabase/
+node_modules
+apps/api/.m2/
+apps/api/target/
+apps/web/dist/
+nul

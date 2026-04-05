@@ -9,7 +9,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
-import java.util.List;
 
 public interface UnitRepository extends JpaRepository<Unit, Long> {
 
@@ -26,10 +25,6 @@ public interface UnitRepository extends JpaRepository<Unit, Long> {
                     Pageable pageable);
 
   Optional<Unit> findByTenantIdAndId(String tenantId, Long id);
-
-  List<Unit> findByTenantIdAndCondominiumIdOrderByBlockAscNumberAsc(String tenantId, Long condominiumId);
-
-  List<Unit> findByTenantIdAndIdIn(String tenantId, Iterable<Long> ids);
 
   // >>> AJUSTADO: trata bloco vazio/NULL corretamente
   @Query("""

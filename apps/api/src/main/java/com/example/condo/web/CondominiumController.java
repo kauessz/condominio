@@ -1,181 +1,142 @@
 package com.example.condo.web;
 
-import com.example.condo.dto.common.PageResponse;
-import com.example.condo.dto.condominium.CondominiumResponse;
-import com.example.condo.dto.condominium.CreateCondominiumRequest;
-import com.example.condo.dto.condominium.UpdateCondominiumRequest;
-import com.example.condo.service.CondominiumService;
-import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
+import com.example.condo.entity.Condominium;
+import com.example.condo.repo.CondominiumRepository;
+import com.example.condo.repo.ResidentRepository;
+import com.example.condo.repo.UnitRepository;
+import com.example.condo.tenant.TenantContext;
+import org.springframework.data.domain.*;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
-/**
- * Controller de condomínios.
- *
- * Endpoints:
- * - GET    /condominiums           -> Lista com paginação (qualquer autenticado)
- * - GET    /condominiums/{id}      -> Detalhes de um condomínio (qualquer autenticado)
- * - POST   /condominiums           -> Criar condomínio (SUPERUSER only)
- * - PUT    /condominiums/{id}      -> Atualizar condomínio (SUPERUSER only)
- * - DELETE /condominiums/{id}      -> Deletar condomínio (SUPERUSER only)
- */
+import java.time.Instant;
+import java.util.List;
+
 @RestController
-@RequestMapping({"/condominiums", "/api/condominiums"})
+@RequestMapping({ "/condominiums", "/api/condominiums" })
 public class CondominiumController {
 
-    private final CondominiumService condominiumService;
+  private final CondominiumRepository repo;
+  private final UnitRepository units;
+  private final ResidentRepository residents;
 
-    public CondominiumController(CondominiumService condominiumService) {
-        this.condominiumService = condominiumService;
-    }
+  public CondominiumController(CondominiumRepository repo, UnitRepository units, ResidentRepository residents) {
+    this.repo = repo;
+    this.units = units;
+    this.residents = residents;
+  }
 
-    /**
-     * GET /condominiums
-     *
-     * Lista condomínios com paginação e contadores.
-     * Retorna apenas os condomínios do tenant do usuário autenticado.
-     *
-     * Query params:
-     * - page: número da página (default: 0)
-     * - pageSize: tamanho da página (default: 20)
-     *
-     * Resposta:
-     * {
-     *   "content": [...],
-     *   "page": 0,
-     *   "size": 20,
-     *   "totalElements": 50,
-     *   "totalPages": 3,
-     *   "first": true,
-     *   "last": false
-     * }
-     */
-    @GetMapping
-    public ResponseEntity<PageResponse<CondominiumResponse>> list(
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "20") int pageSize
-    ) {
-        PageResponse<CondominiumResponse> response = condominiumService.listWithCounts(page, pageSize);
-        return ResponseEntity.ok(response);
+  // ===== DTOs =====
+  public record ErrorDTO(String error) {
+    public static ErrorDTO of(String m) {
+      return new ErrorDTO(m);
     }
+  }
 
-    /**
-     * GET /condominiums/{id}
-     *
-     * Busca detalhes de um condomínio com contadores.
-     *
-     * Resposta:
-     * {
-     *   "id": 1,
-     *   "name": "Edifício Solar",
-     *   "cnpj": "12.345.678/0001-90",
-     *   "createdAt": "2024-01-15T10:30:00Z",
-     *   "unitCount": 50,
-     *   "residentCount": 120
-     * }
-     *
-     * Erros:
-     * - 404: Condomínio não encontrado
-     */
-    @GetMapping("/{id}")
-    public ResponseEntity<CondominiumResponse> getById(@PathVariable Long id) {
-        CondominiumResponse response = condominiumService.getById(id);
-        return ResponseEntity.ok(response);
+  public record CondoDTO(Long id, String name, String cnpj,
+      Instant createdAt,
+      Counts _count) {
+    public record Counts(long units, long residents) {
     }
+  }
 
-    /**
-     * POST /condominiums
-     *
-     * Cria um novo condomínio.
-     *
-     * Requer role: SUPERUSER
-     *
-     * Body:
-     * {
-     *   "name": "Edifício Solar",
-     *   "cnpj": "12.345.678/0001-90"
-     * }
-     *
-     * Validações:
-     * - name: obrigatório, 3-200 caracteres
-     * - cnpj: formato XX.XXX.XXX/XXXX-XX (opcional)
-     *
-     * Resposta (201):
-     * {
-     *   "id": 1,
-     *   "name": "Edifício Solar",
-     *   "cnpj": "12.345.678/0001-90",
-     *   "createdAt": "2024-01-15T10:30:00Z"
-     * }
-     */
-    @PostMapping
-    @PreAuthorize("hasRole('SUPERUSER')")
-    public ResponseEntity<CondominiumResponse> create(
-        @Valid @RequestBody CreateCondominiumRequest request
-    ) {
-        CondominiumResponse response = condominiumService.create(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
-    }
+  public record PageResp<T>(List<T> items, long total, int page, int pageSize) {
+  }
 
-    /**
-     * PUT /condominiums/{id}
-     *
-     * Atualiza um condomínio existente (atualização parcial).
-     *
-     * Requer role: SUPERUSER
-     *
-     * Body (todos os campos opcionais):
-     * {
-     *   "name": "Novo Nome",
-     *   "cnpj": "98.765.432/0001-10"
-     * }
-     *
-     * Erros:
-     * - 404: Condomínio não encontrado
-     */
-    @PutMapping("/{id}")
-    @PreAuthorize("hasRole('SUPERUSER')")
-    public ResponseEntity<CondominiumResponse> update(
-        @PathVariable Long id,
-        @Valid @RequestBody UpdateCondominiumRequest request
-    ) {
-        CondominiumResponse response = condominiumService.update(id, request);
-        return ResponseEntity.ok(response);
-    }
+  public record NewCondoReq(String name, String cnpj) {
+  }
 
-    /**
-     * DELETE /condominiums/{id}
-     *
-     * Deleta um condomínio.
-     *
-     * Requer role: SUPERUSER
-     *
-     * Regra de negócio: não permite deletar se houver unidades ou moradores vinculados.
-     *
-     * Resposta (204): No Content
-     *
-     * Erros:
-     * - 404: Condomínio não encontrado
-     * - 422: Condomínio tem vínculos (unidades/moradores)
-     */
-    @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('SUPERUSER')")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
-        condominiumService.delete(id);
-        return ResponseEntity.noContent().build();
-    }
+  public record UpdateCondoReq(String name, String cnpj) {
+  }
 
-    @PostMapping("/{id}/activate")
-    @PreAuthorize("hasRole('SUPERUSER')")
-    public ResponseEntity<CondominiumResponse> activate(@PathVariable Long id) {
-        return ResponseEntity.ok(condominiumService.setActive(id, true));
-    }
+  // ===== LIST (com contadores) =====
+  @GetMapping
+  public PageResp<CondoDTO> list(@RequestParam(defaultValue = "0") int page,
+      @RequestParam(defaultValue = "20") int pageSize) {
+    String tenant = TenantContext.get();
+    Pageable pageable = PageRequest.of(page, pageSize, Sort.by(Sort.Direction.DESC, "created_at"));
 
-    @PostMapping("/{id}/deactivate")
-    @PreAuthorize("hasRole('SUPERUSER')")
-    public ResponseEntity<CondominiumResponse> deactivate(@PathVariable Long id) {
-        return ResponseEntity.ok(condominiumService.setActive(id, false));
+    Page<Object[]> p = repo.pageWithCounts(tenant, pageable);
+
+    List<CondoDTO> items = p.getContent().stream().map(row -> {
+      Long id = ((Number) row[0]).longValue();
+      String name = (String) row[1];
+      String cnpj = (String) row[2];
+      Instant createdAt = ((java.sql.Timestamp) row[3]).toInstant();
+      long units = ((Number) row[4]).longValue();
+      long residents = ((Number) row[5]).longValue();
+      return new CondoDTO(id, name, cnpj, createdAt, new CondoDTO.Counts(units, residents));
+    }).toList();
+
+    return new PageResp<>(items, p.getTotalElements(), p.getNumber() + 1, p.getSize());
+  }
+
+  // detalhe do condomínio (com contadores)
+  @GetMapping("/{id}")
+  public ResponseEntity<?> getOne(@PathVariable Long id) {
+    String tenant = TenantContext.get();
+    var opt = repo.findByTenantIdAndId(tenant, id);
+    if (opt.isEmpty())
+      return ResponseEntity.status(404).body(ErrorDTO.of("Condomínio não encontrado"));
+
+    var c = opt.get();
+    long u = units.countByTenantIdAndCondominiumId(tenant, c.getId());
+    long r = residents.countByTenantIdAndCondominiumId(tenant, c.getId());
+
+    return ResponseEntity.ok(
+        java.util.Map.of(
+            "id", c.getId(),
+            "name", c.getName(),
+            "cnpj", c.getCnpj(),
+            "_count", java.util.Map.of("units", u, "residents", r)));
+  }
+
+  // ===== CREATE =====
+  @PostMapping
+  public ResponseEntity<?> create(@RequestBody NewCondoReq req) {
+    String tenant = TenantContext.get();
+    if (req.name() == null || req.name().isBlank()) {
+      return ResponseEntity.badRequest().body(ErrorDTO.of("Nome é obrigatório"));
     }
+    Condominium c = new Condominium();
+    c.setTenantId(tenant);
+    c.setName(req.name().trim());
+    c.setCnpj(req.cnpj() == null ? "" : req.cnpj().trim());
+    // c.setCreatedAt(Instant.now()); // <-- REMOVIDO: sua entidade não tem esse
+    // setter
+    repo.save(c);
+    return ResponseEntity.ok().build();
+  }
+
+  // ===== UPDATE =====
+  @PutMapping("/{id}")
+  public ResponseEntity<?> update(@PathVariable Long id, @RequestBody UpdateCondoReq req) {
+    String tenant = TenantContext.get();
+    var cOpt = repo.findByTenantIdAndId(tenant, id);
+    if (cOpt.isEmpty())
+      return ResponseEntity.status(404).body(ErrorDTO.of("Condomínio não encontrado"));
+
+    Condominium c = cOpt.get();
+    c.setName(req.name() == null ? "" : req.name().trim());
+    c.setCnpj(req.cnpj() == null ? "" : req.cnpj().trim());
+    repo.save(c);
+    return ResponseEntity.ok().build();
+  }
+
+  // ===== DELETE (com bloqueio se houver vínculos) =====
+  @DeleteMapping("/{id}")
+  public ResponseEntity<?> delete(@PathVariable Long id) {
+    String tenant = TenantContext.get();
+    var cOpt = repo.findByTenantIdAndId(tenant, id);
+    if (cOpt.isEmpty())
+      return ResponseEntity.status(404).body(ErrorDTO.of("Condomínio não encontrado"));
+
+    long u = units.countByTenantIdAndCondominiumId(tenant, id);
+    long r = residents.countByTenantIdAndCondominiumId(tenant, id);
+    if (u > 0 || r > 0) {
+      return ResponseEntity.badRequest().body(ErrorDTO.of("Exclusão bloqueada: há unidades/moradores vinculados."));
+    }
+    repo.delete(cOpt.get());
+    return ResponseEntity.noContent().build();
+  }
 }

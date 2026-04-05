@@ -1,97 +1,104 @@
 package com.example.condo.security;
 
 /**
- * Roles do sistema CondoHub — Fase 2
- *
- * Hierarquia de permissões:
- * SUPERUSER > ADMIN > SINDICO > FINANCEIRO > OPERADOR > ZELADOR > PORTARIA > MORADOR
+ * Roles do sistema CondoHub
+ * 
+ * Hierarquia:
+ * SUPER_ADMIN > ADMIN > MANAGER > STAFF > RESIDENT > GUEST
  */
 public enum Role {
-
+  
   /**
-   * Super Administrador do SaaS
-   * - Acesso total a TODOS os condomínios, sem filtro de tenant
-   * - Pode criar/editar qualquer dado no sistema
+   * Super Administrador
+   * - Dono do SaaS, suporte técnico
+   * - Acesso total a TODOS os condomínios
+   * - Pode criar/editar qualquer dado
    */
-  SUPERUSER("Super Admin", 100),
-
+  SUPER_ADMIN("Super Admin", 100),
+  
   /**
-   * Administrador / Administradora
-   * - Gerencia um condomínio específico
-   * - Pode criar/editar moradores, unidades e visitantes
-   * - Acessa entregas mas não visitas pessoais de moradores
+   * Administrador do Condomínio
+   * - Síndico, empresa administradora
+   * - Acesso total ao SEU condomínio
+   * - Gestão financeira, moradores, unidades
    */
-  ADMIN("Administrador", 70),
-
+  ADMIN("Síndico/Administradora", 80),
+  
   /**
-   * Síndico
-   * - Gestão do SEU condomínio (moradores, unidades, assembleias)
-   * - DEVE ter unitId (também é morador)
-   * - Acessa entregas mas não visitas pessoais de moradores
+   * Gestor/Zelador
+   * - Zelador, subsíndico, gerente predial
+   * - Operações do dia-a-dia
+   * - Pode aprovar reservas, alocar vagas, ver inadimplência
+   * - NÃO pode criar/editar unidades ou gerar boletos
    */
-  SINDICO("Síndico", 80),
-
-  FINANCEIRO("Financeiro", 75),
-
-  OPERADOR("Operador", 65),
-
+  MANAGER("Zelador/Gestor", 60),
+  
   /**
-   * Zelador
-   * - Ordens de serviço + manutenção + reservas
-   * - DEVE ter unitId (também é morador)
-   * - Acessa entregas mas não visitas pessoais de moradores
-   * - Sem acesso financeiro
+   * Portaria/Segurança
+   * - Porteiro, segurança
+   * - Registro de entrada/saída de visitantes
+   * - Controle de acesso
+   * - NÃO vê dados financeiros
    */
-  ZELADOR("Zelador", 60),
-
-  /**
-   * Portaria / Segurança
-   * - Registro de entrada/saída de visitantes (qualquer unidade do condomínio)
-   * - Vê todas as visitas e entregas do condomínio
-   * - Consulta lista de moradores (somente leitura)
-   * - Não vê dados financeiros nem gerencia moradores/unidades
-   */
-  PORTARIA("Portaria", 40),
-
+  STAFF("Portaria", 40),
+  
   /**
    * Morador
-   * - Portal próprio: apenas sua unidade e seus visitantes pessoais
-   * - Pode pré-registrar visitantes apenas para a própria unidade
-   * - Pode aprovar ou negar visitantes da sua unidade
-   * - Não acessa dados de outros moradores ou unidades
+   * - Morador comum
+   * - Vê apenas dados da própria unidade
+   * - Pode fazer reservas, pré-autorizar visitantes
+   * - Vê próprios boletos
    */
-  MORADOR("Morador", 20);
-
+  RESIDENT("Morador", 20),
+  
+  /**
+   * Visitante/Convidado
+   * - Familiar temporário, inquilino sem vínculo
+   * - Acesso apenas para visualização
+   */
+  GUEST("Visitante", 10);
+  
   private final String displayName;
   private final int priority;
-
+  
   Role(String displayName, int priority) {
     this.displayName = displayName;
     this.priority = priority;
   }
-
+  
   public String getDisplayName() {
     return displayName;
   }
-
+  
   public int getPriority() {
     return priority;
   }
-
+  
+  /**
+   * Verifica se esta role tem permissão maior ou igual à role fornecida
+   */
   public boolean hasPermission(Role required) {
     return this.priority >= required.priority;
   }
-
-  public boolean isAdminOrAbove() {
-    return this == SUPERUSER || this == ADMIN || this == SINDICO || this == FINANCEIRO;
+  
+  /**
+   * Retorna true se é admin (ADMIN ou SUPER_ADMIN)
+   */
+  public boolean isAdmin() {
+    return this == ADMIN || this == SUPER_ADMIN;
   }
-
-  public boolean canManageVisitors() {
-    return this.priority >= PORTARIA.priority;
+  
+  /**
+   * Retorna true se pode gerenciar operações (MANAGER ou superior)
+   */
+  public boolean canManage() {
+    return this.priority >= MANAGER.priority;
   }
-
-  /** Retorna true para roles que veem apenas entregas (DELIVERY), não visitas pessoais */
-  public boolean onlySeesDeliveries() {
-    return this == ADMIN || this == SINDICO || this == ZELADOR;
+  
+  /**
+   * Retorna true se pode acessar área financeira (ADMIN ou superior)
+   */
+  public boolean canAccessFinance() {
+    return this.priority >= ADMIN.priority;
   }
 }

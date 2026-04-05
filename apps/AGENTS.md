@@ -1,80 +1,45 @@
-# AGENTS.md
+# Repository Guidelines
 
-## Escopo deste arquivo
-Este arquivo cobre a pasta `apps/`.
+## Project Structure & Module Organization
+- `api/` — Spring Boot (Java 21). Source in `src/main/java`, resources in `src/main/resources`, tests in `src/test/java`.
+- `api-ts/` — Express + TypeScript + Prisma. Feature folders: `controllers/`, `routes/`, `services/`, `middlewares/`, `utils/`; database schema in `prisma/`.
+- `web/` — React + Vite + Tailwind. App code in `src/`, static assets in `public/`.
 
-Os caminhos abaixo são relativos a `apps/`:
-- `api/` = backend Spring Boot principal
-- `web/` = frontend React/Vite principal
-- `api-ts/` = backend legado
+## Build, Test, and Development Commands
+- Java API: `cd api`
+  - Dev run: `mvn spring-boot:run`
+  - Build: `mvn clean package`
+  - Tests: `mvn test`
+- TS API: `cd api-ts`
+  - Install: `pnpm install` (or `npm install`)
+  - Dev run: `pnpm dev`
+  - Build/Start: `pnpm build && pnpm start`
+  - Prisma: `pnpm prisma:migrate`, `pnpm prisma:studio`
+- Web: `cd web`
+  - Install: `pnpm install` (or `npm install`)
+  - Dev run: `pnpm dev`
+  - Build/Preview: `pnpm build && pnpm preview`
 
-## Regra de prioridade técnica
-- Novas funcionalidades devem ser implementadas preferencialmente em `api/` e `web/`.
-- `api-ts/` é legado e não deve receber novas features sem pedido explícito.
-- Não misturar alterações nas três apps em uma mesma entrega sem necessidade.
+## Coding Style & Naming Conventions
+- Java: 4-space indent; packages `lowercase.dotted`, classes `PascalCase`; suffix Spring classes (`*Controller`, `*Service`, `*Repository`).
+- TypeScript/JS: 2-space indent; files `kebab-case.ts`; classes `PascalCase`, variables/functions `camelCase`.
+- Linting: `web` uses ESLint (`web/eslint.config.js`). Prefer consistent Prettier-style formatting (no semicolons preference optional).
 
-## Backend principal (`api/`)
-Stack principal:
-- Java 21
-- Spring Boot
-- Spring Security
-- JPA / Hibernate
-- Flyway
+## Testing Guidelines
+- Java API: JUnit via Spring Boot Starter Test. Place tests under `api/src/test/java` named `*Tests.java`. Run with `mvn test`.
+- Web: Vitest configured. Place tests under `web/src/__tests__/` or alongside files as `*.test.ts(x)`. Run `pnpm test` (watch: `pnpm test:watch`, coverage: `pnpm test:coverage`).
+- TS API: No runner configured yet. Prefer Jest or Vitest; name tests `*.test.ts`.
+- Aim for meaningful unit tests around controllers/services and critical UI flows.
 
-Ao trabalhar no backend principal:
-- revisar controllers, services, repositories e entities relacionados
-- respeitar autenticação JWT e contexto de tenant
-- evitar queries sem filtro de tenant quando a entidade for multi-tenant
-- revisar impacto em permissões e roles
-- revisar impacto em migrations antes de alterar schema
+## Commit & Pull Request Guidelines
+- Use Conventional Commits: `feat(api-ts): short summary`, `fix(web): …`, `chore(api): …`.
+- PRs must include: clear description, scope (api/api-ts/web), linked issues, and for UI changes screenshots or GIFs. Add run/verify steps.
+- Keep changes focused; separate formatting-only changes.
 
-### Antes de alterar autenticação, tenant ou autorização
-Sempre verificar:
-- filtros de segurança
-- geração e leitura do JWT
-- `X-Tenant`
-- `TenantContext`
-- services que consultam por tenant
-- possíveis reflexos no frontend
+## Security & Configuration
+- Never commit secrets. Use `.env` for `api-ts` and `web`; for `api` configure Spring properties via env vars or external `application-*.properties`.
+- Prisma: run migrations locally before pushing schema changes.
 
-## Frontend principal (`web/`)
-Stack principal:
-- React
-- Vite
-- TypeScript
-- Axios
-
-Ao trabalhar no frontend:
-- usar a camada centralizada de API existente
-- preservar interceptors, auth e fluxo de sessão
-- conferir a chave usada para armazenar tenant e token
-- validar impacto em guards, hooks e chamadas autenticadas
-
-## Backend legado (`api-ts/`)
-- tratar como legado
-- não criar novas regras de negócio aqui
-- só alterar se houver necessidade explícita ou correção pontual orientada
-
-## Forma de trabalho
-Antes de implementar:
-1. localizar os arquivos relevantes
-2. explicar rapidamente o fluxo atual
-3. propor uma alteração pequena e segura
-4. implementar
-5. revisar o próprio diff
-
-## Qualidade mínima
-Cada entrega deve ter, quando aplicável:
-- código consistente com o padrão existente
-- validações essenciais
-- testes mínimos
-- resumo objetivo no final
-- baixo acoplamento
-- sem segredos hardcoded
-
-## Ao finalizar
-Sempre retornar:
-- arquivos alterados
-- motivo de cada alteração
-- testes executados
-- riscos restantes
+## Agent-Specific Tips
+- Keep edits scoped to the relevant app (`api`, `api-ts`, or `web`).
+- Match existing naming and folder boundaries; avoid cross-app refactors in a single PR.

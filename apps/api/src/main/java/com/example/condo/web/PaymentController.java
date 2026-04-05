@@ -14,7 +14,7 @@ import java.util.UUID;
 public class PaymentController {
 
     @PostMapping("/invoices/{id}/charge")
-    @PreAuthorize("hasAnyRole('SUPERUSER','SINDICO','ADMIN')")
+    @PreAuthorize("hasAnyRole('MANAGER','ADMIN')")
     public ResponseEntity<?> createCharge(@PathVariable("id") Long invoiceId) {
         String chargeId = UUID.randomUUID().toString();
         return ResponseEntity.ok(Map.of(

@@ -8,13 +8,10 @@ import java.time.Instant;
 public class Visitor {
 
     public enum Status {
-        DRAFT,
-        PENDING_APPROVAL,
-        APPROVED,
-        REJECTED,
-        CHECKED_IN,
-        CHECKED_OUT,
-        CANCELLED
+        PENDING,       // aguardando aprovação / lançado
+        APPROVED,      // aprovado
+        REJECTED,      // reprovado
+        CHECKED_OUT    // já saiu / entregue
     }
 
     public enum Type {
@@ -75,7 +72,7 @@ public class Visitor {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 32)
-    private Status status = Status.PENDING_APPROVAL;
+    private Status status = Status.PENDING;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "type", nullable = false, length = 32)
