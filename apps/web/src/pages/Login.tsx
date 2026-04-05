@@ -1,149 +1,148 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { setToken } from "../lib/api";
 import { useToast } from "../components/Toast";
 import { saveAuth, type User, type Role } from "../lib/auth";
 import api, { normalizeToken } from "../lib/api";
 
-// tenta extrair o token de vários formatos possíveis
-function pickToken(obj: any): string | undefined {
-  if (!obj) return undefined;
-  return (
-    obj.accessToken ??
-    obj.token ??
-    obj.jwt ??
-    obj.access_token ??
-    obj.data?.accessToken ??
-    obj.data?.token ??
-    obj.data?.jwt ??
-    obj.data?.access_token
-  );
-}
-
 export default function Login() {
   const nav = useNavigate();
   const toast = useToast();
 
-  // default já com admin demo pra facilitar o primeiro login
-  const [email, setEmail] = useState("admin@demo.com");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+
     try {
       const res = await api.post(
-        "/api/auth/login", // <-- rota nova correta do backend
+        "/api/auth/login",
+        { email: email.trim(), password: password.trim() },
         {
-          email: email.trim(),
-          password: password.trim(),
-        },
-        {
-          headers: {
-            "X-Tenant": "demo",
-            "X-Skip-Auth-Redirect": "true",
-          },
-          // não tratar 4xx/5xx como erro de rede
+          headers: { "X-Tenant": "demo", "X-Skip-Auth-Redirect": "true" },
           validateStatus: () => true,
         }
       );
 
-      // se backend respondeu erro explícito
       if (res.status < 200 || res.status >= 300) {
-        const msg =
-          res.data?.error ||
-          res.data?.message ||
-          `Falha no login (HTTP ${res.status})`;
-        toast.show({ type: "error", msg });
+        toast.show({
+          type: "error",
+          msg: res.data?.message || res.data?.error || `Falha no login (${res.status})`,
+        });
         return;
       }
 
       const data = res.data ?? {};
-      const rawToken = pickToken(data);
+
+      const rawToken = data.token ?? data.accessToken ?? data.jwt ?? data.access_token;
       const tok = normalizeToken(rawToken);
 
       if (!tok) {
-        toast.show({
-          type: "error",
-          msg:
-            "Token não retornado pelo servidor. Verifique o payload de /api/auth/login.",
-        });
-        console.warn("Resposta /api/auth/login sem token reconhecido:", data);
+        toast.show({ type: "error", msg: "Token não retornado pelo servidor." });
         return;
       }
 
-      // o backend retorna "role": "SUPER_ADMIN" | "ADMIN" | "RESIDENT" ...
-      const roleFromApi: Role | undefined = (
-        data.role ??
-        data.user?.role ??
-        data.data?.role ??
-        data.data?.user?.role
-      ) as Role | undefined;
-
-      // monta objeto user mínimo.
-      // se você quiser depois, você pode chamar /api/auth/me pra pegar name/id reais
       const user: User = {
-        id: "admin", // fallback básico
-        name: "Admin",
-        email: email.trim(),
-        role: (roleFromApi ?? "ADMIN") as Role,
+        id: String(data.id ?? ""),
+        name: data.name || data.email || email.trim(),
+        email: data.email || email.trim(),
+        role: (data.role as Role) ?? "ADMIN",
+        unitId: data.unitId ?? null,
+        condominiumId: data.condominiumId ?? null,
       };
 
-      // salva no storage/localStorage
-      saveAuth(tok, user, "demo");
-      // injeta token default no axios
+      saveAuth(tok, user, data.tenant ?? "demo");
       setToken(tok);
 
       toast.show({ type: "success", msg: "Login efetuado" });
       nav("/app/dashboard", { replace: true });
     } catch (err: any) {
-      const msg =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        err?.message ||
-        "Falha no login";
-      toast.show({ type: "error", msg });
+      toast.show({
+        type: "error",
+        msg: err?.response?.data?.message || err?.response?.data?.error || err?.message || "Falha no login",
+      });
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen grid place-items-center">
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-sm bg-white rounded-xl p-6 shadow"
-      >
-        <h1 className="text-xl font-semibold mb-4">Entrar</h1>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-sm">
+        {/* Logo / título */}
+        <div className="mb-8 text-center">
+          <div className="inline-flex items-center justify-center w-12 h-12 bg-indigo-600 rounded-xl mb-4">
+            <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: "'DM Sans', sans-serif" }}>
+            CondoHub
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">Gestão inteligente de condomínios</p>
+        </div>
 
-        <label className="block text-sm text-slate-600">Email</label>
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="border rounded-lg p-2 w-full mb-3"
-          placeholder="email@exemplo.com"
-        />
-
-        <label className="block text-sm text-slate-600">Senha</label>
-        <input
-          type="password"
-          required
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="border rounded-lg p-2 w-full mb-4"
-          placeholder="••••••••"
-        />
-
-        <button
-          disabled={loading}
-          className="w-full bg-slate-900 text-white rounded-lg py-2 disabled:opacity-50"
+        {/* Card do formulário */}
+        <form
+          onSubmit={onSubmit}
+          className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4"
         >
-          {loading ? "Entrando..." : "Entrar"}
-        </button>
-      </form>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              E-mail
+            </label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-colors"
+              placeholder="seu@email.com"
+              autoComplete="email"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">
+              Senha
+            </label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 transition-colors"
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg py-2.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
+          >
+            {loading ? "Entrando…" : "Entrar"}
+          </button>
+        </form>
+
+        {/* Link para cadastro */}
+        <div className="mt-5 text-center">
+          <p className="text-sm text-slate-500">
+            Seu condomínio não está cadastrado?{" "}
+            <Link
+              to="/solicitar-cadastro"
+              className="text-indigo-600 hover:text-indigo-700 font-medium hover:underline"
+            >
+              Solicitar cadastro
+            </Link>
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

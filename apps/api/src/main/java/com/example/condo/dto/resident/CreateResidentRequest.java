@@ -10,7 +10,7 @@ import jakarta.validation.constraints.Size;
  */
 public record CreateResidentRequest(
 
-    @NotNull(message = "ID do condomínio é obrigatório")
+    // condominiumId é opcional: para não-SUPERUSER o backend resolve pelo JWT
     Long condominiumId,
 
     @NotNull(message = "ID da unidade é obrigatório")

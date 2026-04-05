@@ -1,15 +1,15 @@
 package com.example.condo.dto.unit;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 /**
  * DTO para criar uma nova unidade.
+ *
+ * condominiumId é opcional: para não-SUPERUSER o backend resolve pelo JWT.
  */
 public record CreateUnitRequest(
 
-    @NotNull(message = "ID do condomínio é obrigatório")
     Long condominiumId,
 
     @Size(max = 50, message = "Código deve ter no máximo 50 caracteres")

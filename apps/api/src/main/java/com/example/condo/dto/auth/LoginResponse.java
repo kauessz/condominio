@@ -11,10 +11,22 @@ public record LoginResponse(
     String email,
     String name,
     Role role,
-    String tenant
+    String tenant,
+    Long condominiumId,
+    Long unitId,
+    Long id
 ) {
 
-    public static LoginResponse of(String token, String email, String name, Role role, String tenant) {
-        return new LoginResponse(token, "Bearer", email, name, role, tenant);
+    public static LoginResponse of(
+        String token,
+        String email,
+        String name,
+        Role role,
+        String tenant,
+        Long condominiumId,
+        Long unitId,
+        Long id
+    ) {
+        return new LoginResponse(token, "Bearer", email, name, role, tenant, condominiumId, unitId, id);
     }
 }

@@ -38,6 +38,7 @@ public class TenantFilter extends OncePerRequestFilter {
                                   @NonNull FilterChain filterChain)
       throws ServletException, IOException {
 
+    boolean tenantSet = false;
     try {
       // aceita os dois headers
       String tenant = firstNonBlank(
@@ -52,14 +53,22 @@ public class TenantFilter extends OncePerRequestFilter {
       }
 
       if (tenant == null || tenant.isBlank()) {
+        if (hasBearerAuth(request)) {
+          // JWT validará e populá o TenantContext mais adiante
+          filterChain.doFilter(request, response);
+          return;
+        }
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         return;
       }
 
       TenantContext.set(tenant);
+      tenantSet = true;
       filterChain.doFilter(request, response);
     } finally {
-      TenantContext.clear();
+      if (tenantSet) {
+        TenantContext.clear();
+      }
     }
   }
 
@@ -68,5 +77,11 @@ public class TenantFilter extends OncePerRequestFilter {
     if ("OPTIONS".equalsIgnoreCase(request.getMethod())) return true;
     String p = request.getRequestURI().toLowerCase(Locale.ROOT);
     return p.startsWith("/swagger") || p.startsWith("/v3/api-docs") || p.startsWith("/actuator");
+  }
+
+  private boolean hasBearerAuth(HttpServletRequest request) {
+    String auth = request.getHeader("Authorization");
+    if (auth == null) return false;
+    return auth.toLowerCase(Locale.ROOT).startsWith("bearer ");
   }
 }

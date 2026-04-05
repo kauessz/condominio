@@ -12,7 +12,7 @@ import java.time.Instant;
  */
 public record CreateVisitorRequest(
 
-    @NotNull(message = "ID do condomínio é obrigatório")
+    // condominiumId é opcional: para não-SUPERUSER o backend resolve pelo JWT
     Long condominiumId,
 
     @NotNull(message = "ID da unidade é obrigatório")

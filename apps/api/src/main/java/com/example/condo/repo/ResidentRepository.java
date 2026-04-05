@@ -15,6 +15,7 @@ public interface ResidentRepository extends JpaRepository<Resident, Long> {
   @Query("""
       select r from Resident r
       where r.tenantId = :t and r.condominiumId = :c and
+            ( :unitId is null or r.unitId = :unitId ) and
             ( :q is null or :q = '' or
               lower(r.name)  like lower(concat('%', :q, '%')) or
               lower(r.email) like lower(concat('%', :q, '%')) or
@@ -22,6 +23,7 @@ public interface ResidentRepository extends JpaRepository<Resident, Long> {
       """)
   Page<Resident> search(@Param("t") String tenantId,
                         @Param("c") Long condoId,
+                        @Param("unitId") Long unitId,
                         @Param("q") String q,
                         Pageable pageable);
 
@@ -33,12 +35,13 @@ public interface ResidentRepository extends JpaRepository<Resident, Long> {
 
   // JOIN para evitar N+1 na listagem
   @Query("""
-    select r as resident, u as unit
+    select r as resident, u.code as code, u.number as number, u.block as block
     from Resident r
     left join Unit u
-      on u.id = r.unitId
+     on u.id = r.unitId
      and u.tenantId = r.tenantId
     where r.tenantId = :t and r.condominiumId = :c and
+          ( :unitId is null or r.unitId = :unitId ) and
           ( :q is null or :q = '' or
             lower(r.name)  like lower(concat('%', :q, '%')) or
             lower(r.email) like lower(concat('%', :q, '%')) or
@@ -46,6 +49,7 @@ public interface ResidentRepository extends JpaRepository<Resident, Long> {
   """)
   Page<Object[]> searchWithUnit(@Param("t") String tenantId,
                                 @Param("c") Long condoId,
+                                @Param("unitId") Long unitId,
                                 @Param("q") String q,
                                 Pageable pageable);
 
@@ -53,9 +57,12 @@ public interface ResidentRepository extends JpaRepository<Resident, Long> {
   @Query("""
     select r.unitId as unitId, count(r) as cnt
     from Resident r
-    where r.tenantId = :t and r.condominiumId = :c and r.unitId is not null
+    where r.tenantId = :t and r.condominiumId = :c
+      and (:unitId is null or r.unitId = :unitId)
+      and r.unitId is not null
     group by r.unitId
   """)
   List<Object[]> countByUnit(@Param("t") String tenantId,
-                             @Param("c") Long condoId);
+                             @Param("c") Long condoId,
+                             @Param("unitId") Long unitId);
 }

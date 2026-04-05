@@ -1,4 +1,20 @@
-# Condo Hardening Pack — Como integrar
+# Condo Hardening Pack — material legado
+
+Este arquivo descreve um pacote de integração antigo e **não** o runtime oficial do monorepo atual.
+
+## Fonte oficial hoje
+
+- Backend oficial: `apps/api`
+- Frontend oficial: `apps/web`
+- Banco/migrations oficiais: Flyway em `apps/api/src/main/resources/db/migration`
+
+## Status deste material
+
+- `src/apps/api` e os anexos deste pack servem apenas como referência histórica.
+- Não devem ser usados em CI/CD, Docker build, Railway ou deploy de produção.
+- Para subir a aplicação atual, use `infra/docker-compose.yml`, `apps/api` e `apps/web`.
+
+---
 
 ## 1) Copie os arquivos
 - **API (Java/Spring)** → coloque o conteúdo de `apps/api/` dentro de `apps/api/` do seu projeto.

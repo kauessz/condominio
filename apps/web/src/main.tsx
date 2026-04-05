@@ -8,13 +8,20 @@ import {
 
 import App from "./App";
 import RequireAuth from "./RequireAuth";
-// import ProtectedRoute from "./components/ProtectedRoute"; // Descomente quando for usar
 
 import Dashboard from "./pages/Dashboard";
 import Units from "./pages/Units";
 import Residents from "./pages/Residents";
 import Login from "./pages/Login";
 import Visitors from "./pages/Visitors";
+import Onboarding from "./pages/Onboarding";
+import RequestOnboarding from "./pages/RequestOnboarding";
+import Users from "./pages/Users";
+import Reservations from "./pages/Reservations";
+import WorkOrders from "./pages/WorkOrders";
+import Parking from "./pages/Parking";
+import Assemblies from "./pages/Assemblies";
+import Financial from "./pages/Financial";
 
 import { ToastProvider } from "./components/Toast";
 import "./styles/index.css";
@@ -23,8 +30,11 @@ const router = createBrowserRouter([
   // Login direto em "/"
   { path: "/", element: <Login /> },
 
-  // (opcional) manter /login como alias
+  // Alias de login
   { path: "/login", element: <Login /> },
+
+  // Formulário público de solicitação de cadastro (sem autenticação)
+  { path: "/solicitar-cadastro", element: <RequestOnboarding /> },
 
   // Área protegida sob /app
   {
@@ -41,73 +51,38 @@ const router = createBrowserRouter([
       // --- Dashboard (todos os usuários autenticados) ---
       { path: "dashboard", element: <Dashboard /> },
 
-      // --- Unidades (somente ADMIN pode criar/editar) ---
-      { 
-        path: "units", 
-        element: <Units /> 
-      },
-      { 
-        path: "condos/:id/units", 
-        element: <Units /> 
-      },
+      // --- Unidades ---
+      { path: "units",                element: <Units /> },
+      { path: "condos/:id/units",     element: <Units /> },
 
-      // --- Moradores (somente ADMIN pode criar/editar) ---
-      { 
-        path: "residents", 
-        element: <Residents /> 
-      },
-      { 
-        path: "condos/:id/residents", 
-        element: <Residents /> 
-      },
+      // --- Moradores ---
+      { path: "residents",            element: <Residents /> },
+      { path: "condos/:id/residents", element: <Residents /> },
 
-      // --- Visitantes (ADMIN e STAFF podem gerenciar) ---
-      { 
-        path: "visitors", 
-        element: <Visitors /> 
-      },
-      { 
-        path: "condos/:id/visitors", 
-        element: <Visitors /> 
-      },
+      // --- Visitantes ---
+      { path: "visitors",             element: <Visitors /> },
+      { path: "condos/:id/visitors",  element: <Visitors /> },
 
-      // --- EXEMPLO: Rota protegida apenas para ADMIN ---
-      // Descomente quando criar a página de administração e descomentar o import do ProtectedRoute
-      /*
-      { 
-        path: "admin", 
-        element: (
-          <ProtectedRoute allowedRoles={['ADMIN']}>
-            <AdminPanel />
-          </ProtectedRoute>
-        )
-      },
-      */
+      // --- Onboarding (SUPERUSER) ---
+      { path: "onboarding",           element: <Onboarding /> },
 
-      // --- EXEMPLO: Rota para RESIDENT (morador) ---
-      // Descomente quando criar a área do morador
-      /*
-      { 
-        path: "my-unit", 
-        element: (
-          <ProtectedRoute allowedRoles={['RESIDENT']}>
-            <MyUnit />
-          </ProtectedRoute>
-        )
-      },
-      */
+      // --- Usuários ---
+      { path: "users",                element: <Users /> },
 
-      // --- EXEMPLO: Rota para STAFF (porteiro) ---
-      /*
-      { 
-        path: "check-in", 
-        element: (
-          <ProtectedRoute allowedRoles={['STAFF', 'ADMIN']}>
-            <CheckIn />
-          </ProtectedRoute>
-        )
-      },
-      */
+      // --- Fase 2: Reservas de Áreas Comuns ---
+      { path: "reservations",         element: <Reservations /> },
+
+      // --- Fase 2: Ordens de Serviço ---
+      { path: "work-orders",          element: <WorkOrders /> },
+
+      // --- Fase 2: Vagas de Estacionamento ---
+      { path: "parking",              element: <Parking /> },
+
+      // --- Fase 2: Assembleias ---
+      { path: "assemblies",           element: <Assemblies /> },
+
+      // --- Fase 2: Financeiro ---
+      { path: "financial",            element: <Financial /> },
     ],
   },
 

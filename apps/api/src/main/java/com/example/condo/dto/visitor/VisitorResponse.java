@@ -29,7 +29,7 @@ public record VisitorResponse(
     String status,
     String type,
     Instant approvedAt,
-    Long approvedBy,
+    String approvedBy,
     String rejectionReason
 ) {
 
@@ -59,7 +59,7 @@ public record VisitorResponse(
             visitor.getStatus() != null ? visitor.getStatus().name() : null,
             visitor.getType() != null ? visitor.getType().name() : null,
             visitor.getApprovedAt(),
-            visitor.getApprovedBy(),
+            visitor.getApprovedBy() != null ? visitor.getApprovedBy().toString() : null,
             visitor.getRejectionReason()
         );
     }
@@ -95,7 +95,7 @@ public record VisitorResponse(
             visitor.getStatus() != null ? visitor.getStatus().name() : null,
             visitor.getType() != null ? visitor.getType().name() : null,
             visitor.getApprovedAt(),
-            visitor.getApprovedBy(),
+            visitor.getApprovedBy() != null ? visitor.getApprovedBy().toString() : null,
             visitor.getRejectionReason()
         );
     }

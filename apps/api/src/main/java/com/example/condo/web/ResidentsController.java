@@ -12,15 +12,20 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 /**
  * Controller de moradores.
  *
- * Endpoints:
- * - GET    /residents          -> Lista com paginação e busca
- * - GET    /residents/{id}     -> Detalhes de um morador
- * - POST   /residents          -> Criar morador (ADMIN only)
- * - PUT    /residents/{id}     -> Atualizar morador (ADMIN only)
- * - DELETE /residents/{id}     -> Deletar morador (ADMIN only)
+ * O parâmetro condoId é opcional na listagem:
+ * - SUPERUSER: deve fornecer condoId para filtrar por condomínio.
+ * - Outros roles: condoId é ignorado; backend usa condominiumId do JWT.
+ *
+ * Roles com acesso:
+ * - GET:              SUPERUSER, SINDICO, ADMIN, PORTARIA, MORADOR
+ * - POST:             SUPERUSER, SINDICO, ADMIN, MORADOR (apenas própria unidade)
+ * - DELETE:           SUPERUSER, SINDICO, ADMIN
+ * - PUT:              SUPERUSER, SINDICO, ADMIN, MORADOR (somente moradores da própria unidade)
  */
 @RestController
 @RequestMapping({"/residents", "/api/residents"})
@@ -32,120 +37,53 @@ public class ResidentsController {
         this.residentService = residentService;
     }
 
-    /**
-     * GET /residents
-     *
-     * Lista moradores com paginação e busca.
-     *
-     * Query params:
-     * - condoId: ID do condomínio (obrigatório)
-     * - q: termo de busca (opcional - busca em name, email, phone)
-     * - page, size, sort: parâmetros de paginação Spring Data
-     *
-     * Resposta: Page<ResidentResponse> (com dados da unidade)
-     */
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPERUSER','SINDICO','ADMIN','PORTARIA','MORADOR')")
     public Page<ResidentResponse> list(
-        @RequestParam("condoId") Long condominiumId,
+        @RequestParam(value = "condoId", required = false) Long condominiumId,
+        @RequestParam(value = "condominiumId", required = false) Long condominiumIdAlt,
         @RequestParam(value = "q", required = false) String query,
         Pageable pageable
     ) {
-        return residentService.search(condominiumId, query, pageable);
+        Long effectiveCondoId = condominiumId != null ? condominiumId : condominiumIdAlt;
+        return residentService.search(effectiveCondoId, query, pageable);
     }
 
-    /**
-     * GET /residents/{id}
-     *
-     * Busca detalhes de um morador.
-     *
-     * Erros:
-     * - 404: Morador não encontrado
-     */
+    @GetMapping("/count-by-unit")
+    @PreAuthorize("hasAnyRole('SUPERUSER','SINDICO','ADMIN','PORTARIA')")
+    public Map<Long, Long> countByUnit(
+        @RequestParam(value = "condoId", required = false) Long condominiumId,
+        @RequestParam(value = "condominiumId", required = false) Long condominiumIdAlt
+    ) {
+        Long effectiveCondoId = condominiumId != null ? condominiumId : condominiumIdAlt;
+        return residentService.countByUnit(effectiveCondoId);
+    }
+
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPERUSER','SINDICO','ADMIN','PORTARIA','MORADOR')")
     public ResponseEntity<ResidentResponse> getById(@PathVariable Long id) {
-        ResidentResponse response = residentService.getById(id);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(residentService.getById(id));
     }
 
-    /**
-     * POST /residents
-     *
-     * Cria um novo morador.
-     *
-     * Requer role: ADMIN
-     *
-     * Body:
-     * {
-     *   "condominiumId": 1,
-     *   "unitId": 10,
-     *   "name": "João Silva",
-     *   "email": "joao@exemplo.com",
-     *   "phone": "(11) 98765-4321"
-     * }
-     *
-     * Validações:
-     * - condominiumId: obrigatório
-     * - unitId: obrigatório
-     * - name: obrigatório, 3-200 caracteres
-     * - email: formato válido, max 200 caracteres
-     * - phone: opcional, max 20 caracteres
-     *
-     * Resposta (201): ResidentResponse
-     *
-     * Erros:
-     * - 404: Condomínio ou unidade não encontrados
-     */
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPERUSER','SINDICO','ADMIN','MORADOR')")
     public ResponseEntity<ResidentResponse> create(
         @Valid @RequestBody CreateResidentRequest request
     ) {
-        ResidentResponse response = residentService.create(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(residentService.create(request));
     }
 
-    /**
-     * PUT /residents/{id}
-     *
-     * Atualiza um morador existente (atualização parcial).
-     *
-     * Requer role: ADMIN
-     *
-     * Body (todos os campos opcionais):
-     * {
-     *   "unitId": 20,
-     *   "name": "João Pedro Silva",
-     *   "email": "joaopedro@exemplo.com",
-     *   "phone": "(11) 99999-8888"
-     * }
-     *
-     * Erros:
-     * - 404: Morador ou nova unidade não encontrados
-     */
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPERUSER','SINDICO','ADMIN','MORADOR')")
     public ResponseEntity<ResidentResponse> update(
         @PathVariable Long id,
         @Valid @RequestBody UpdateResidentRequest request
     ) {
-        ResidentResponse response = residentService.update(id, request);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(residentService.update(id, request));
     }
 
-    /**
-     * DELETE /residents/{id}
-     *
-     * Deleta um morador.
-     *
-     * Requer role: ADMIN
-     *
-     * Resposta (204): No Content
-     *
-     * Erros:
-     * - 404: Morador não encontrado
-     */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPERUSER','SINDICO','ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         residentService.delete(id);
         return ResponseEntity.noContent().build();

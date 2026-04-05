@@ -1,53 +1,66 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect } from "react";
+import api from "../lib/api";
+import { getUser, setUser, type User, type Role } from "../lib/auth";
 
-interface CurrentUser {
-  id?: number;
+interface ApiMeResponse {
+  id: number;
   email: string;
   name: string;
   role: string;
   tenant: string;
-  unitId?: number;
+  unitId?: number | null;
+  createdAt?: string;
 }
 
+/**
+ * Hook que retorna o usuário autenticado.
+ *
+ * Estratégia:
+ * 1. Lê do cache em memória/localStorage para resposta imediata.
+ * 2. Se não tiver cache, chama GET /api/auth/me para buscar dados atualizados.
+ */
 export function useCurrentUser() {
-  const [user, setUser] = useState<CurrentUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cached = getUser();
+  const [user, setLocalUser] = useState<User | null>(cached);
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const tenant = localStorage.getItem('tenant') || 'demo';
+    if (cached) {
+      setLocalUser(cached);
+      setLoading(false);
+      return;
+    }
 
-        if (!token) {
-          setError('No token found');
-          setLoading(false);
-          return;
-        }
+    let alive = true;
 
-        const response = await fetch('http://localhost:8080/api/auth/me', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'X-Tenant': tenant,
-          },
-        });
+    api
+      .get<ApiMeResponse>("/api/auth/me")
+      .then((res) => {
+        if (!alive) return;
+        const data = res.data;
+        const u: User = {
+          id: String(data.id ?? ""),
+          name: data.name ?? data.email ?? "",
+          email: data.email ?? "",
+          role: (data.role as Role) ?? "ADMIN",
+          unitId: data.unitId != null ? String(data.unitId) : undefined,
+        };
+        setUser(u);
+        setLocalUser(u);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setError(err?.message ?? "Falha ao buscar usuário");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch user data');
-        }
-
-        const data = await response.json();
-        setUser(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Unknown error');
-      } finally {
-        setLoading(false);
-      }
+    return () => {
+      alive = false;
     };
-
-    fetchUser();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { user, loading, error };
 }

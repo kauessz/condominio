@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import api from "../lib/api";
+import {
+  canAccessModule,
+  canCreateResidents,
+  canDeleteResidents,
+  canEditResidents,
+  getUser,
+} from "../lib/auth";
 import { useToast } from "../components/Toast";
 import Modal from "../components/Modal";
 
@@ -13,6 +20,12 @@ type Resident = {
   email: string;
   phone?: string | null;
   unitId?: number | null;
+  // Campos retornados pelo backend (ResidentResponse)
+  unitCode?: string | null;
+  unitNumber?: string | null;
+  unitBlock?: string | null;
+  unitDisplay?: string | null;
+  // Compatibilidade com resposta aninhada legacy
   unit?: { id: number; number?: string | number; block?: string | null } | null;
 };
 
@@ -52,28 +65,41 @@ function normalizePage<T = any>(raw: any): {
   return { items: [], total: 0, page: 0, size: 0 };
 }
 
-// ===== helpers de exibição de unidade (evitam erros de tipo) =====
-function unitPretty(u?: { number?: string | number; block?: string | null } | null) {
-  if (!u) return "sem unidade";
-  const n = u.number ?? "";
-  const b = u.block ? ` • Bloco ${u.block}` : "";
-  return n ? `Unidade ${n}${b}` : "sem unidade";
-}
-
+// ===== helpers de exibição de unidade =====
 function residentUnitText(r: Resident): string {
-  // 1) payload já trouxe a unidade expandida?
-  if (r.unit && (r.unit.number != null || r.unit.block != null)) {
-    return unitPretty({ number: r.unit.number, block: r.unit.block ?? null });
+  // 1. Campo computado pelo backend (preferência)
+  if (r.unitDisplay) return r.unitDisplay;
+
+  // 2. Campos individuais do backend
+  if (r.unitNumber) {
+    const block = r.unitBlock ? ` - Bloco ${r.unitBlock}` : "";
+    return `${r.unitNumber}${block}`;
   }
-  // 2) apenas o id
+
+  // 3. Objeto unit aninhado (legacy / outros endpoints)
+  if (r.unit && (r.unit.number != null || r.unit.block != null)) {
+    const n = r.unit.number ?? "";
+    const b = r.unit.block ? ` - Bloco ${r.unit.block}` : "";
+    return `${n}${b}`;
+  }
+
+  // 4. Fallback: apenas ID
   if (r.unitId) return `Unidade ${r.unitId}`;
-  return "sem unidade";
+
+  return "Sem unidade";
 }
 
 export default function Residents() {
   const nav = useNavigate();
   const toast = useToast();
   const [sp, setSp] = useSearchParams();
+
+  const currentUser = getUser();
+  const isSuperuser = currentUser?.role === "SUPERUSER";
+  const isMorador = currentUser?.role === "MORADOR";
+  const canCreate = canCreateResidents();
+  const canEdit = canEditResidents();
+  const canDelete = canDeleteResidents();
 
   // ===== filtros URL =====
   const condoId = Number(sp.get("condoId") || sp.get("condominiumId") || "0");
@@ -96,6 +122,10 @@ export default function Residents() {
     [total, pageSize]
   );
 
+  if (!canAccessModule("residents")) {
+    return <Navigate to="/app/dashboard" replace />;
+  }
+
   function syncUrl(next: Partial<Record<string, string | number>>) {
     const nextSp = new URLSearchParams(sp);
     if (next.q !== undefined) nextSp.set("q", String(next.q));
@@ -107,11 +137,17 @@ export default function Residents() {
   }
 
   async function loadUnitsOptions() {
-    if (!condoId) return;
+    // SUPERUSER precisa de condoId; outros roles usam JWT no backend
+    if (isSuperuser && !condoId) return;
     try {
-      const resp = await api.get<any>("/units", {
-        params: { condoId, page: 0, pageSize: 1000, sortBy: "number", sortDir: "asc" },
-      });
+      const params: Record<string, any> = {
+        page: 0, pageSize: 1000, sortBy: "number", sortDir: "asc",
+      };
+      if (isSuperuser && condoId) {
+        params.condoId = condoId;
+        params.condominiumId = condoId;
+      }
+      const resp = await api.get<any>("/units", { params });
       const pageData = normalizePage<{ id: number; number: string | number; block?: string | null }>(resp.data);
       const opts: UnitOpt[] = pageData.items.map((u) => ({
         id: u.id,
@@ -124,12 +160,16 @@ export default function Residents() {
   }
 
   async function load() {
-    if (!condoId) return;
+    // SUPERUSER precisa de condoId na URL; outros roles usam JWT no backend
+    if (isSuperuser && !condoId) return;
     try {
       setLoading(true);
-      const resp = await api.get<any>("/residents", {
-        params: { condoId, q, page: pageIndex, pageSize, sortBy, sortDir },
-      });
+      const params: Record<string, any> = { q, page: pageIndex, pageSize, sortBy, sortDir };
+      if (isSuperuser && condoId) {
+        params.condoId = condoId;
+        params.condominiumId = condoId;
+      }
+      const resp = await api.get<any>("/residents", { params });
       const pageData = normalizePage<Resident>(resp.data);
 
       setItems(pageData.items);
@@ -195,6 +235,11 @@ export default function Residents() {
         toast.show({ type: "error", msg: "Email é obrigatório" });
         return;
       }
+      if (!editing && !form.unitId) {
+        toast.show({ type: "error", msg: "Selecione uma unidade para o morador" });
+        return;
+      }
+
       const unitId = form.unitId ? Number(form.unitId) : null;
 
       if (editing) {
@@ -202,17 +247,17 @@ export default function Residents() {
           name: form.name.trim(),
           email: form.email.trim(),
           phone: form.phone.trim() || null,
-          condoId,
           unitId,
         });
         toast.show({ type: "success", msg: "Morador atualizado" });
       } else {
+        // condominiumId é enviado mas para não-SUPERUSER o backend usa JWT
         await api.post("/residents", {
+          condominiumId: condoId || undefined,
+          unitId,
           name: form.name.trim(),
           email: form.email.trim(),
           phone: form.phone.trim() || null,
-          condoId,
-          unitId,
         });
         toast.show({ type: "success", msg: "Morador criado" });
         setPageIndex(0);
@@ -222,10 +267,14 @@ export default function Residents() {
       setOpenModal(false);
       load();
     } catch (err: any) {
-      toast.show({
-        type: "error",
-        msg: err?.response?.data?.error || "Falha ao salvar morador",
-      });
+      const data = err?.response?.data;
+      const detail =
+        data?.validationErrors
+          ? Object.entries(data.validationErrors)
+              .map(([f, m]) => `${f}: ${m}`)
+              .join(" | ")
+          : data?.message || data?.error || "Falha ao salvar morador";
+      toast.show({ type: "error", msg: detail });
     }
   }
 
@@ -244,7 +293,7 @@ export default function Residents() {
   }
 
   function goBack() {
-    nav(`/app/units?condoId=${condoId}`);
+    nav(isMorador ? "/app/dashboard" : `/app/units?condoId=${condoId}`);
   }
 
   return (
@@ -253,12 +302,14 @@ export default function Residents() {
         <button onClick={goBack} className="text-slate-600 hover:underline">
           ← Voltar
         </button>
-        <button
-          onClick={openCreate}
-          className="bg-slate-900 text-white px-4 py-2 rounded-lg"
-        >
-          Novo morador
-        </button>
+        {canCreate && (
+          <button
+            onClick={openCreate}
+            className="bg-slate-900 text-white px-4 py-2 rounded-lg"
+          >
+            Novo morador
+          </button>
+        )}
       </div>
 
       {/* filtros */}
@@ -326,34 +377,53 @@ export default function Residents() {
 
       {/* lista */}
       {loading ? (
-        <div className="text-slate-500">Carregando…</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 animate-pulse h-36" />
+          ))}
+        </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {items.map((r) => {
             const unitText = residentUnitText(r);
             return (
-              <div key={r.id} className="rounded-xl border p-4 shadow-sm">
-                <div className="font-semibold">{r.name}</div>
-                <div className="text-slate-600 text-sm">
-                  {r.email} {r.phone ? ` • ${r.phone}` : ""}
+              <div key={r.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 transition-shadow hover:shadow-md">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-slate-900 text-lg">{r.name}</div>
+                    <div className="text-slate-600 text-sm mt-1">
+                      {r.email} {r.phone ? ` • ${r.phone}` : ""}
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-600 text-xs font-medium px-2.5 py-1">
+                    {unitText}
+                  </span>
                 </div>
-                <div className="text-slate-500 text-xs mt-1">
-                  {unitText}
+                <div className="text-slate-500 text-xs mt-3">
+                  Perfil vinculado ao contexto operacional da unidade
                 </div>
 
-                <div className="mt-3 flex gap-4 text-sm">
-                  <button onClick={() => openEdit(r)} className="text-blue-600">
-                    Editar
-                  </button>
-                  <button onClick={() => onDelete(r)} className="text-red-600">
-                    Excluir
-                  </button>
-                </div>
+                {(canEdit || canDelete) && (
+                  <div className="mt-4 flex gap-4 text-sm">
+                    {canEdit && (
+                      <button onClick={() => openEdit(r)} className="text-blue-600 hover:underline">
+                        Editar
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button onClick={() => onDelete(r)} className="text-red-600 hover:underline">
+                        Excluir
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
           {items.length === 0 && (
-            <div className="text-slate-500">Nenhum morador encontrado.</div>
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-slate-500 text-sm">
+              Nenhum morador encontrado.
+            </div>
           )}
         </div>
       )}
@@ -395,7 +465,7 @@ export default function Residents() {
       >
         <div className="space-y-3">
           <div>
-            <label className="block text-sm text-slate-600">Nome</label>
+            <label className="block text-sm text-slate-600">Nome *</label>
             <input
               value={form.name}
               onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -404,7 +474,7 @@ export default function Residents() {
           </div>
 
           <div>
-            <label className="block text-sm text-slate-600">Email</label>
+            <label className="block text-sm text-slate-600">Email *</label>
             <input
               type="email"
               value={form.email}
@@ -424,14 +494,15 @@ export default function Residents() {
 
           <div>
             <label className="block text-sm text-slate-600">
-              Unidade (do condomínio atual)
+              Unidade {!editing && <span className="text-red-500">*</span>}
             </label>
             <select
               value={form.unitId}
               onChange={(e) => setForm((f) => ({ ...f, unitId: e.target.value }))}
+              disabled={isMorador}
               className="border rounded-lg px-3 py-2 w-full"
             >
-              <option value="">Sem unidade</option>
+              <option value="">{isMorador ? "Sua unidade atual" : "Selecionar unidade..."}</option>
               {unitOpts.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.label}

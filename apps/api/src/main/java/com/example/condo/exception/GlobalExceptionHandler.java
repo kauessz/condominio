@@ -13,6 +13,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -121,7 +122,11 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 400 - Validação de Bean Validation (@Valid)
+     * 422 - Validação de Bean Validation (@Valid)
+     *
+     * Retorna 422 Unprocessable Entity (em vez de 400) para que o frontend
+     * possa diferenciar erros de validação de campos de erros de protocolo HTTP.
+     * A resposta inclui um mapa field→message para exibição contextual no formulário.
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidationErrors(
@@ -139,18 +144,21 @@ public class GlobalExceptionHandler {
         log.warn("Erros de validação: {}", validationErrors);
 
         ErrorResponse error = ErrorResponse.withValidationErrors(
-            HttpStatus.BAD_REQUEST.value(),
+            HttpStatus.UNPROCESSABLE_ENTITY.value(),
             "Validation Failed",
-            "Um ou mais campos contêm erros de validação",
+            "Um ou mais campos contêm erros de validação: " +
+                validationErrors.entrySet().stream()
+                    .map(e -> e.getKey() + ": " + e.getValue())
+                    .collect(java.util.stream.Collectors.joining(", ")),
             request.getRequestURI(),
             validationErrors
         );
 
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(error);
     }
 
     /**
-     * 400 - Violação de constraint (validação programática)
+     * 422 - Violação de constraint (validação programática)
      */
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ErrorResponse> handleConstraintViolation(
@@ -168,14 +176,14 @@ public class GlobalExceptionHandler {
         log.warn("Constraint violations: {}", validationErrors);
 
         ErrorResponse error = ErrorResponse.withValidationErrors(
-            HttpStatus.BAD_REQUEST.value(),
+            HttpStatus.UNPROCESSABLE_ENTITY.value(),
             "Constraint Violation",
             "Um ou mais campos violam restrições de validação",
             request.getRequestURI(),
             validationErrors
         );
 
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(error);
     }
 
     /**
@@ -197,6 +205,8 @@ public class GlobalExceptionHandler {
                 message = "Já existe um usuário com este e-mail";
             } else if (causeMessage.contains("unique_unit_number")) {
                 message = "Já existe uma unidade com este número/bloco neste condomínio";
+            } else if (causeMessage.contains("reservation_no_overlap")) {
+                message = "Já existe uma reserva para esta área no período informado";
             } else if (causeMessage.contains("foreign key constraint")) {
                 message = "Não é possível deletar este recurso pois ele está sendo usado";
             }
@@ -230,6 +240,29 @@ public class GlobalExceptionHandler {
         );
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
+    /**
+     * Preserva o status de exceções lançadas explicitamente pela camada de serviço.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatusException(
+        ResponseStatusException ex,
+        HttpServletRequest request
+    ) {
+        HttpStatus status = HttpStatus.valueOf(ex.getStatusCode().value());
+        String reason = ex.getReason() != null ? ex.getReason() : status.getReasonPhrase();
+
+        log.warn("Erro HTTP controlado [{}]: {}", status.value(), reason);
+
+        ErrorResponse error = ErrorResponse.of(
+            status.value(),
+            status.getReasonPhrase(),
+            reason,
+            request.getRequestURI()
+        );
+
+        return ResponseEntity.status(status).body(error);
     }
 
     /**

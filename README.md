@@ -1,4 +1,4 @@
-# 🏙️ Condomínio — Sistema de Gestão de Condomínios
+# 🏙️ Condomínio — Plataforma SaaS de Gestão Condominial
 
 [![Spring Boot](https://img.shields.io/badge/Backend-SpringBoot-green.svg)](https://spring.io/projects/spring-boot)
 [![React](https://img.shields.io/badge/Frontend-React-blue.svg)](https://reactjs.org/)
@@ -30,29 +30,26 @@ A aplicação possui **backend em Spring Boot** e **frontend com React + TypeScr
 
 ---
 
-## 🧱 Arquitetura e Estrutura
+## 🧱 Estrutura oficial do monorepo
 
 ```
 condominio/
-├── backend/                # API em Spring Boot (Java 17+)
-│   ├── src/main/java/…     # Código-fonte do backend
-│   ├── src/main/resources/ # application.yml, mapeamentos, etc.
-│   └── Dockerfile          # Container do backend
-│
-├── frontend/               # Aplicação React (Vite + TS/TSX)
-│   ├── src/                # Páginas, componentes e hooks
-│   ├── public/             # Assets estáticos
-│   └── Dockerfile          # Container do frontend
-│
-├── docker-compose.yml      # Orquestração (API + Front + PostgreSQL)
-└── README.md               # Este arquivo
+├── apps/
+│   ├── api/                # Backend oficial em Spring Boot
+│   ├── web/                # Frontend oficial em React/Vite
+│   └── api-ts/             # Backend legado
+├── infra/                  # Docker, banco e ambiente local
+├── src/apps/api/           # Material legado de hardening/import pack
+└── README.md
 ```
 
-**Stack principal**  
-- **Backend:** Spring Boot, Spring Web, Spring Data JPA, (opcional: Spring Security + JWT), Java 17  
-- **Banco:** PostgreSQL 14+  
-- **Frontend:** React 18, Vite, TypeScript (TS/TSX), Axios  
-- **Infra:** Docker, Docker Compose
+## Fonte de verdade
+
+- Backend ativo: `apps/api`
+- Frontend ativo: `apps/web`
+- Banco e migrations: PostgreSQL + Flyway em `apps/api/src/main/resources/db/migration`
+
+`src/apps/api` não participa do build, do runtime nem do deploy oficial.
 
 ---
 
@@ -103,15 +100,15 @@ VITE_API_URL=http://localhost:8080/api
 ### 3) Subir tudo com Docker
 
 ```bash
-docker-compose up --build
+docker compose -f infra/docker-compose.yml up --build
 ```
 
 - 🌐 Frontend: `http://localhost:3000`  
 - 🖥️ Backend: `http://localhost:8080`  
 - 🗄️ Postgres: `localhost:5432` (usuário/senha de acordo com `.env`)
 
-> **Parar**: `Ctrl+C` e depois `docker-compose down` para encerrar os containers.  
-> **Recriar do zero**: `docker-compose down -v && docker-compose up --build` (remove volumes).
+> **Parar**: `Ctrl+C` e depois `docker compose -f infra/docker-compose.yml down` para encerrar os containers.  
+> **Recriar do zero**: `docker compose -f infra/docker-compose.yml down -v && docker compose -f infra/docker-compose.yml up --build` (remove volumes).
 
 ---
 
@@ -119,10 +116,10 @@ docker-compose up --build
 
 > Útil para iterar rápido em uma das pontas.
 
-### Backend
+### Backend oficial
 
 ```bash
-cd backend
+cd apps/api
 # Linux/Mac:
 ./mvnw spring-boot:run
 # Windows:
@@ -131,10 +128,10 @@ mvnw.cmd spring-boot:run
 
 A API sobe em `http://localhost:8080`. Configure `application.yml`/`.properties` ou use as variáveis do `.env`.
 
-### Frontend
+### Frontend oficial
 
 ```bash
-cd frontend
+cd apps/web
 # Gerenciador de pacotes a sua escolha:
 npm install   # ou: pnpm install | yarn
 npm run dev   # ou: pnpm dev | yarn dev
@@ -183,9 +180,21 @@ export default api;
 
 ---
 
-## 🗃️ Migrações de Banco (opcional)
+## 🗃️ Banco e migrações
 
-Se utilizar **Flyway** ou **Liquibase**, mantenha os scripts de migração em `backend/src/main/resources/db/migration` (ou pasta equivalente) para versionar o schema do banco.
+O schema oficial é controlado por **Flyway** em:
+
+- `apps/api/src/main/resources/db/migration`
+
+Não há segunda fonte oficial de schema no projeto.
+
+## 🔐 RBAC
+
+Roles oficiais: `SUPERUSER`, `ADMIN`, `SINDICO`, `FINANCEIRO`, `OPERADOR`, `ZELADOR`, `PORTARIA`, `MORADOR`.
+
+Documentação curta:
+
+- `docs/RBAC.md`
 
 ---
 

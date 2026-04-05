@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../lib/api";
-import { can } from "../lib/auth";
+import { getUser } from "../lib/auth";
 
 type SortBy = "checkInAt" | "checkOutAt" | "name";
 type SortDir = "asc" | "desc";
-type Status = "PENDING" | "APPROVED" | "REJECTED" | "CHECKED_OUT" | "ALL";
+type Status = "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CHECKED_IN" | "CHECKED_OUT" | "CANCELLED" | "ALL";
 type VType = "VISITOR" | "DELIVERY" | "SERVICE" | "ALL";
 
 type VisitorRow = {
@@ -20,7 +20,10 @@ type VisitorRow = {
   packages?: number | null;
   checkInAt?: string | null;
   checkOutAt?: string | null;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "CHECKED_OUT";
+  status: "DRAFT" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "CHECKED_IN" | "CHECKED_OUT" | "CANCELLED";
+  unitId?: number | null;
+  unitNumber?: string | null;
+  unitBlock?: string | null;
 };
 
 type PageAny = {
@@ -104,14 +107,20 @@ function badgeClass(base: string) {
 
 function statusBadge(s: VisitorRow["status"]) {
   switch (s) {
-    case "PENDING":
-      return <span className={badgeClass("bg-amber-50 text-amber-700 ring-1 ring-amber-200")}>PENDENTE</span>;
+    case "DRAFT":
+      return <span className={badgeClass("bg-slate-100 text-slate-700 ring-1 ring-slate-200")}>RASCUNHO</span>;
+    case "PENDING_APPROVAL":
+      return <span className={badgeClass("bg-amber-50 text-amber-700 ring-1 ring-amber-200")}>AGUARDANDO APROVAÇÃO</span>;
     case "APPROVED":
       return <span className={badgeClass("bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200")}>APROVADO</span>;
     case "REJECTED":
       return <span className={badgeClass("bg-rose-50 text-rose-700 ring-1 ring-rose-200")}>REJEITADO</span>;
+    case "CHECKED_IN":
+      return <span className={badgeClass("bg-blue-50 text-blue-700 ring-1 ring-blue-200")}>ENTRADA</span>;
     case "CHECKED_OUT":
       return <span className={badgeClass("bg-slate-100 text-slate-700 ring-1 ring-slate-200")}>CHECK-OUT</span>;
+    case "CANCELLED":
+      return <span className={badgeClass("bg-slate-100 text-slate-700 ring-1 ring-slate-200")}>CANCELADO</span>;
   }
 }
 
@@ -127,6 +136,18 @@ export default function Visitors() {
   const nav = useNavigate();
   const [sp, setSp] = useSearchParams();
 
+  const currentUser = getUser();
+  const isPortaria = currentUser?.role === "PORTARIA";
+  const isMorador  = currentUser?.role === "MORADOR";
+  const isSindico  = currentUser?.role === "SINDICO";
+  const isAdmin    = currentUser?.role === "ADMIN";
+  const isSuperuser = currentUser?.role === "SUPERUSER";
+  const isManager  = isSuperuser || isSindico || isAdmin;
+  const canEdit    = isManager || isPortaria;
+  const canApprove = isSuperuser || isAdmin || isSindico || isMorador;
+  const canOperateAccess = isSuperuser || isAdmin || isSindico || isPortaria;
+
+  // condoId: relevante apenas para SUPERUSER; outros usam JWT no backend
   const condoId = Number(sp.get("condoId") || sp.get("condominiumId") || "0");
 
   const [q, setQ] = useState(sp.get("q") ?? "");
@@ -150,7 +171,7 @@ export default function Visitors() {
 
   function sync() {
     const n = new URLSearchParams(sp);
-    n.set("condoId", String(condoId || ""));
+    if (condoId) n.set("condoId", String(condoId));
     n.set("q", q || "");
     if (from) n.set("from", from); else n.delete("from");
     if (to) n.set("to", to); else n.delete("to");
@@ -164,18 +185,22 @@ export default function Visitors() {
   }
 
   async function load() {
-    if (!condoId) return;
+    // SUPERUSER precisa de condoId; outros roles usam JWT no backend
+    if (isSuperuser && !condoId) return;
     setLoading(true);
     try {
       const params: Record<string, any> = {
-        condoId,
-        condominiumId: condoId,
         q: q || undefined,
         page,
         pageSize: size,
         sortBy,
         sortDir,
       };
+      // SUPERUSER: inclui condoId no request; outros: backend usa JWT
+      if (isSuperuser && condoId) {
+        params.condoId = condoId;
+        params.condominiumId = condoId;
+      }
       if (from) params.from = from;
       if (to) params.to = to;
       if (status !== "ALL") params.status = status;
@@ -198,20 +223,22 @@ export default function Visitors() {
   }
 
   async function loadUnits() {
-    if (!condoId) return;
+    // SUPERUSER precisa de condoId; outros roles usam JWT no backend
+    if (isSuperuser && !condoId) return;
     setLoadingUnits(true);
     try {
-      const r = await api.get<any>("/units", {
-        params: {
-          condoId,
-          condominiumId: condoId,
-          q: "",
-          page: 0,
-          pageSize: 1000,
-          sortBy: "number",
-          sortDir: "asc",
-        },
-      });
+      const params: Record<string, any> = {
+        q: "",
+        page: 0,
+        pageSize: 1000,
+        sortBy: "number",
+        sortDir: "asc",
+      };
+      if (isSuperuser && condoId) {
+        params.condoId = condoId;
+        params.condominiumId = condoId;
+      }
+      const r = await api.get<any>("/units", { params });
       const p = normPage(r.data);
       setUnits(p.items.map((u: any) => ({ id: u.id, number: u.number, block: u.block ?? null })));
     } catch (err: any) {
@@ -292,7 +319,6 @@ export default function Visitors() {
   }
 
   async function submit() {
-    if (!condoId) { window.alert("Condomínio inválido."); return; }
     if (!form.name.trim()) { window.alert("Nome é obrigatório."); return; }
     setSaving(true);
     try {
@@ -315,12 +341,14 @@ export default function Visitors() {
       }
 
       if (editingId == null) {
-        // CREATE
-        const payload = { condominiumId: condoId, status: "PENDING", ...base };
+        // condominiumId é enviado para SUPERUSER; para outros, backend usa JWT
+        const payload = {
+          ...(isSuperuser && condoId ? { condominiumId: condoId } : {}),
+          ...base,
+        };
         await api.post("/visitors", payload);
-        window.alert("Check-in criado com sucesso!");
+        window.alert("Visitante cadastrado com sucesso!");
       } else {
-        // UPDATE
         await api.put(`/visitors/${editingId}`, base);
         window.alert("Registro atualizado!");
       }
@@ -329,7 +357,7 @@ export default function Visitors() {
       await load();
     } catch (err: any) {
       if (err?.response?.status !== 401) {
-        const msg = err?.response?.data?.error || err?.response?.data?.message || "Falha ao salvar";
+        const msg = err?.response?.data?.message || err?.response?.data?.error || "Falha ao salvar";
         window.alert(msg);
       }
     } finally {
@@ -337,24 +365,40 @@ export default function Visitors() {
     }
   }
 
+  // Ação direta via endpoints legados (handoff/checkout por POST)
   async function act(path: string, body?: any) {
     try {
       await api.post(path, body ?? {});
       await load();
     } catch (e: any) {
       if (e?.response?.status !== 401) {
-        window.alert(e?.response?.data?.error || "Falha na operação");
+        window.alert(e?.response?.data?.message || e?.response?.data?.error || "Falha na operação");
       }
     }
   }
 
-  async function approve(id: number) { await act(`/visitors/${id}/approve`); }
-  async function reject(id: number) {
-    const reason = window.prompt("Motivo (opcional):") || "";
-    await act(`/visitors/${id}/reject`, reason ? { reason } : {});
+  // Atualização de status via PATCH unificado
+  async function patchStatus(id: number, newStatus: string, reason?: string) {
+    try {
+      await api.patch(`/visitors/${id}/status`, { status: newStatus, reason: reason || null });
+      await load();
+    } catch (e: any) {
+      if (e?.response?.status !== 401) {
+        window.alert(e?.response?.data?.message || e?.response?.data?.error || "Falha ao atualizar status");
+      }
+    }
   }
-  async function checkout(id: number) { await act(`/visitors/${id}/checkout`); }
-  async function handoff(id: number) { await act(`/visitors/${id}/handoff`); }
+
+  async function approve(id: number) { await patchStatus(id, "APPROVED"); }
+  async function reject(id: number) {
+    const reason = window.prompt("Motivo da rejeição (opcional):") || "";
+    await patchStatus(id, "REJECTED", reason || undefined);
+  }
+  async function checkin(id: number) { await patchStatus(id, "CHECKED_IN"); }
+  async function checkout(id: number) { await patchStatus(id, "CHECKED_OUT"); }
+  async function handoff(id: number) { await act(`/visitors/${id}/checkout`); }
+
+  const pendingCount = rows.filter(r => r.status === "PENDING_APPROVAL" || r.status === "DRAFT").length;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-6">
@@ -369,7 +413,12 @@ export default function Visitors() {
             Voltar
           </button>
           <div className="hidden text-sm text-slate-500 md:block">/</div>
-          <div className="text-lg font-semibold text-slate-800">Dashboard</div>
+          <div className="text-lg font-semibold text-slate-800">Visitantes</div>
+          {isPortaria && (
+            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+              Visão Portaria
+            </span>
+          )}
         </div>
 
         <button
@@ -380,6 +429,14 @@ export default function Visitors() {
           Novo check-in
         </button>
       </div>
+
+      {/* Alerta portaria: visitantes pendentes */}
+      {isPortaria && pendingCount > 0 && (
+        <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">{pendingCount} visitante(s) aguardando aprovação</span>
+          <span className="text-amber-600">— verifique os registros PENDENTES abaixo</span>
+        </div>
+      )}
 
       <div className="mb-4 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white/70 p-3 shadow-sm md:grid-cols-12">
         <div className="md:col-span-4">
@@ -439,10 +496,13 @@ export default function Visitors() {
             onChange={(e) => { setStatus(e.target.value as Status); setPage(0); }}
           >
             <option value="ALL">Todos</option>
-            <option value="PENDING">Pendentes</option>
+            <option value="DRAFT">Rascunho</option>
+            <option value="PENDING_APPROVAL">Aguardando aprovação</option>
             <option value="APPROVED">Aprovados</option>
+            <option value="CHECKED_IN">Com entrada</option>
             <option value="REJECTED">Rejeitados</option>
             <option value="CHECKED_OUT">Check-out</option>
+            <option value="CANCELLED">Cancelados</option>
           </select>
         </div>
 
@@ -481,74 +541,107 @@ export default function Visitors() {
         </div>
       ) : (
         <div className="divide-y rounded-xl border border-slate-200 bg-white/70 shadow-sm">
-          {rows.map((v) => (
-            <div
-              key={v.id}
-              className="group flex items-start justify-between gap-4 p-4 transition hover:bg-slate-50/60"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="mb-1 flex items-center gap-2">
-                  <div className="truncate text-base font-semibold text-slate-800">{v.name}</div>
-                  {typeBadge(v.type)}
-                </div>
-                <div className="text-sm text-slate-600">
-                  {v.document || "—"} • {v.plate || "—"}
-                  {v.type === "DELIVERY" ? (
-                    <> • {v.carrier || "—"} • {v.packages ?? 0} vol.</>
-                  ) : null}
-                </div>
-              </div>
+          {rows.map((v) => {
+            const isPending = v.status === "PENDING_APPROVAL" || v.status === "DRAFT";
+            const rowHighlight = isPending && isPortaria
+              ? "border-l-4 border-l-amber-400 bg-amber-50/40"
+              : "";
 
-              <div className="flex shrink-0 items-center gap-2">
-                {can("edit") && (
-                  <button
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                    onClick={() => openEdit(v)}
-                  >
-                    Editar
-                  </button>
-                )}
-                {v.status === "PENDING" && (
-                  <>
-                    <button
-                      className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-                      onClick={() => approve(v.id)}
-                    >
-                      Aprovar
-                    </button>
-                    <button
-                      className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100"
-                      onClick={() => reject(v.id)}
-                    >
-                      Rejeitar
-                    </button>
-                  </>
-                )}
-                {v.type === "DELIVERY" && v.status !== "CHECKED_OUT" && (
-                  <button
-                    className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
-                    onClick={() => handoff(v.id)}
-                  >
-                    Entregar/Retirado
-                  </button>
-                )}
-                {!v.checkOutAt && (
-                  <button
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                    onClick={() => checkout(v.id)}
-                  >
-                    Check-out
-                  </button>
-                )}
-              </div>
+            return (
+              <div
+                key={v.id}
+                className={`group flex items-start justify-between gap-4 p-4 transition hover:bg-slate-50/60 ${rowHighlight}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex items-center gap-2">
+                    <div className="truncate text-base font-semibold text-slate-800">{v.name}</div>
+                    {typeBadge(v.type)}
+                    {isPending && isPortaria && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                        aguardando
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm text-slate-600">
+                    {v.document || "—"} • {v.plate || "—"}
+                    {v.type === "DELIVERY" ? (
+                      <> • {v.carrier || "—"} • {v.packages ?? 0} vol.</>
+                    ) : null}
+                  </div>
+                  {(v.unitNumber || v.unitId) && (
+                    <div className="mt-0.5 text-xs text-slate-500">
+                      Unidade {v.unitNumber ?? v.unitId}{v.unitBlock ? ` • Bloco ${v.unitBlock}` : ""}
+                    </div>
+                  )}
+                </div>
 
-              <div className="min-w-[230px] text-right text-sm text-slate-600">
-                <div>Entrada: <span className="font-medium text-slate-800">{fmtDateTime(v.checkInAt)}</span></div>
-                <div>Saída: <span className="font-medium text-slate-800">{fmtDateTime(v.checkOutAt)}</span></div>
-                <div className="mt-1">{statusBadge(v.status)}</div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {canEdit && (
+                    <button
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                      onClick={() => openEdit(v)}
+                    >
+                      Editar
+                    </button>
+                  )}
+
+                  {/* PENDING → Aprovar / Rejeitar (gestores e portaria) */}
+                  {isPending && canApprove && (
+                    <>
+                      <button
+                        className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                        onClick={() => approve(v.id)}
+                      >
+                        Aprovar
+                      </button>
+                      <button
+                        className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100"
+                        onClick={() => reject(v.id)}
+                      >
+                        Rejeitar
+                      </button>
+                    </>
+                  )}
+
+                  {/* APPROVED → Confirmar entrada (portaria / gestores) */}
+                  {v.status === "APPROVED" && canOperateAccess && (
+                    <button
+                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      onClick={() => checkin(v.id)}
+                    >
+                      Confirmar entrada
+                    </button>
+                  )}
+
+                  {/* Entrega: botão de retirada */}
+                  {v.type === "DELIVERY" && v.status !== "CHECKED_OUT" && canOperateAccess && (
+                    <button
+                      className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                      onClick={() => handoff(v.id)}
+                    >
+                      Retirado
+                    </button>
+                  )}
+
+                  {/* Check-out (portaria / gestores) */}
+                  {!v.checkOutAt && !["REJECTED", "PENDING_APPROVAL", "DRAFT", "CANCELLED"].includes(v.status) && canOperateAccess && (
+                    <button
+                      className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                      onClick={() => checkout(v.id)}
+                    >
+                      Check-out
+                    </button>
+                  )}
+                </div>
+
+                <div className="min-w-[230px] text-right text-sm text-slate-600">
+                  <div>Entrada: <span className="font-medium text-slate-800">{fmtDateTime(v.checkInAt)}</span></div>
+                  <div>Saída: <span className="font-medium text-slate-800">{fmtDateTime(v.checkOutAt)}</span></div>
+                  <div className="mt-1">{statusBadge(v.status)}</div>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -575,7 +668,7 @@ export default function Visitors() {
           <div className="w-[720px] max-w-[95vw] rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
             <div className="mb-3 flex items-center justify-between">
               <div className="text-lg font-semibold text-slate-900">
-                {editingId == null ? "Novo check-in" : "Editar check-in"}
+                {editingId == null ? "Novo visitante" : "Editar visitante"}
               </div>
               <button
                 className="rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-700"

@@ -6,7 +6,7 @@ import com.example.condo.security.Role;
 import java.time.LocalDateTime;
 
 /**
- * DTO para resposta do endpoint /me (dados do usuário autenticado).
+ * DTO para resposta do endpoint GET /api/auth/me.
  */
 public record UserMeResponse(
     Long id,
@@ -14,6 +14,8 @@ public record UserMeResponse(
     String name,
     Role role,
     String tenant,
+    Long unitId,
+    Long condominiumId,
     LocalDateTime createdAt
 ) {
 
@@ -24,6 +26,8 @@ public record UserMeResponse(
             user.getName(),
             user.getRole(),
             user.getTenantId(),
+            user.getUnitId(),
+            user.getCondominiumId(),
             user.getCreatedAt()
         );
     }

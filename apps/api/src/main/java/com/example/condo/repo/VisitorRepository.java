@@ -50,11 +50,23 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
 
   Optional<Visitor> findByTenantIdAndIdAndDeletedAtIsNull(String tenantId, Long id);
 
+  /**
+   * Busca visitantes PENDING cujo checkInAt é anterior ao cutoff informado.
+   * Usado pelo job de auto-expiração.
+   */
+  @Query("""
+         select v from Visitor v
+          where v.status = com.example.condo.entity.Visitor$Status.PENDING_APPROVAL
+            and v.checkInAt < :cutoff
+            and v.deletedAt is null
+         """)
+  java.util.List<Visitor> findPendingExpired(@Param("cutoff") java.time.Instant cutoff);
+
   @Query("""
          select count(v) from Visitor v
           where v.tenantId = :t
             and v.condominiumId = :c
-            and v.status = com.example.condo.entity.Visitor$Status.PENDING
+            and v.status = com.example.condo.entity.Visitor$Status.PENDING_APPROVAL
             and v.deletedAt is null
          """)
   long countPendingByCondo(@Param("t") String tenantId,
@@ -65,7 +77,7 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
           where v.tenantId = :t
             and v.condominiumId = :c
             and v.type = com.example.condo.entity.Visitor$Type.DELIVERY
-            and v.status = com.example.condo.entity.Visitor$Status.PENDING
+            and v.status = com.example.condo.entity.Visitor$Status.PENDING_APPROVAL
             and v.deletedAt is null
          """)
   long countPendingDeliveriesByCondo(@Param("t") String tenantId,
@@ -76,7 +88,7 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
           where v.tenantId = :t
             and v.condominiumId = :c
             and v.type = com.example.condo.entity.Visitor$Type.DELIVERY
-            and v.status = com.example.condo.entity.Visitor$Status.PENDING
+            and v.status = com.example.condo.entity.Visitor$Status.PENDING_APPROVAL
             and v.deletedAt is null
          """)
   long sumPendingDeliveryPackagesByCondo(@Param("t") String tenantId,

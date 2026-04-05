@@ -2,6 +2,10 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 
+vi.mock('../hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({ user: null, loading: false }),
+}));
+
 describe('Navbar', () => {
   it('renders navigation links for guests', () => {
     render(
@@ -17,4 +21,3 @@ describe('Navbar', () => {
     expect(screen.getByRole('link', { name: /entrar/i })).toBeInTheDocument();
   });
 });
-

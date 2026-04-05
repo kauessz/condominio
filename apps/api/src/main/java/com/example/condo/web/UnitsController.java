@@ -15,12 +15,8 @@ import org.springframework.web.bind.annotation.*;
 /**
  * Controller de unidades (apartamentos/casas).
  *
- * Endpoints:
- * - GET    /units              -> Lista com paginação e busca
- * - GET    /units/{id}         -> Detalhes de uma unidade
- * - POST   /units              -> Criar unidade (ADMIN only)
- * - PUT    /units/{id}         -> Atualizar unidade (ADMIN only)
- * - DELETE /units/{id}         -> Deletar unidade (ADMIN only)
+ * GET: todos os roles autenticados (PORTARIA e MORADOR precisam para dropdowns)
+ * POST/PUT/DELETE: apenas gestores (SUPERUSER, ADMIN)
  */
 @RestController
 @RequestMapping({"/units", "/api/units"})
@@ -34,116 +30,46 @@ public class UnitsController {
 
     /**
      * GET /units
-     *
-     * Lista unidades com paginação, busca e contador de moradores.
-     *
-     * Query params:
-     * - condoId: ID do condomínio (obrigatório)
-     * - q: termo de busca (opcional - busca em number, block, code)
-     * - page, size, sort: parâmetros de paginação Spring Data
-     *
-     * Resposta: Page<UnitResponse>
+     * Acessível a todos os roles autenticados.
+     * Para não-SUPERUSER, o condoId da query é ignorado — backend usa JWT.
      */
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN','SINDICO','ZELADOR','PORTARIA','MORADOR')")
     public Page<UnitResponse> list(
-        @RequestParam("condoId") Long condominiumId,
-        @RequestParam(value = "q", required = false) String query,
+        @RequestParam(value = "condoId",       required = false) Long condominiumId,
+        @RequestParam(value = "condominiumId", required = false) Long condominiumIdAlt,
+        @RequestParam(value = "q",             required = false) String query,
         Pageable pageable
     ) {
-        return unitService.search(condominiumId, query, pageable);
+        Long effectiveCondoId = condominiumId != null ? condominiumId : condominiumIdAlt;
+        return unitService.search(effectiveCondoId, query, pageable);
     }
 
-    /**
-     * GET /units/{id}
-     *
-     * Busca detalhes de uma unidade.
-     *
-     * Erros:
-     * - 404: Unidade não encontrada
-     */
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN','SINDICO','ZELADOR','PORTARIA','MORADOR')")
     public ResponseEntity<UnitResponse> getById(@PathVariable Long id) {
-        UnitResponse response = unitService.getById(id);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(unitService.getById(id));
     }
 
-    /**
-     * POST /units
-     *
-     * Cria uma nova unidade.
-     *
-     * Requer role: ADMIN
-     *
-     * Body:
-     * {
-     *   "condominiumId": 1,
-     *   "number": "101",
-     *   "block": "A",
-     *   "code": "A-101" (opcional, gerado automaticamente)
-     * }
-     *
-     * Validações:
-     * - condominiumId: obrigatório
-     * - number: obrigatório, max 20 caracteres
-     * - block: opcional, max 20 caracteres
-     * - Não pode duplicar number + block no mesmo condomínio
-     *
-     * Resposta (201): UnitResponse
-     *
-     * Erros:
-     * - 404: Condomínio não encontrado
-     * - 422: Unidade duplicada
-     */
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN')")
     public ResponseEntity<UnitResponse> create(
         @Valid @RequestBody CreateUnitRequest request
     ) {
-        UnitResponse response = unitService.create(request);
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+        return ResponseEntity.status(HttpStatus.CREATED).body(unitService.create(request));
     }
 
-    /**
-     * PUT /units/{id}
-     *
-     * Atualiza uma unidade existente (atualização parcial).
-     *
-     * Requer role: ADMIN
-     *
-     * Body (todos os campos opcionais):
-     * {
-     *   "number": "102",
-     *   "block": "B"
-     * }
-     *
-     * Erros:
-     * - 404: Unidade não encontrada
-     * - 422: Número/bloco duplicado
-     */
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN')")
     public ResponseEntity<UnitResponse> update(
         @PathVariable Long id,
         @Valid @RequestBody UpdateUnitRequest request
     ) {
-        UnitResponse response = unitService.update(id, request);
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(unitService.update(id, request));
     }
 
-    /**
-     * DELETE /units/{id}
-     *
-     * Deleta uma unidade.
-     *
-     * Requer role: ADMIN
-     *
-     * Resposta (204): No Content
-     *
-     * Erros:
-     * - 404: Unidade não encontrada
-     */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         unitService.delete(id);
         return ResponseEntity.noContent().build();

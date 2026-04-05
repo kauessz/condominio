@@ -1,7 +1,8 @@
 // apps/web/src/pages/Units.tsx
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams, useLocation } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams, useLocation } from "react-router-dom";
 import api from "../lib/api";
+import { canAccessModule, canManageUnits, getUser } from "../lib/auth";
 import { useToast } from "../components/Toast";
 import Modal from "../components/Modal";
 
@@ -35,6 +36,10 @@ export default function Units() {
   const [sp, setSp] = useSearchParams();
   const loc = useLocation() as any;
 
+  const currentUser = getUser();
+  const isSuperuser = currentUser?.role === "SUPERUSER";
+  const canManage = canManageUnits();
+
   // filtros
   const condoId = Number(sp.get("condoId") || sp.get("condominiumId") || "0");
   const [q, setQ] = useState(sp.get("q") ?? "");
@@ -56,6 +61,10 @@ export default function Units() {
 
   const pageCount = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
 
+  if (!canAccessModule("units")) {
+    return <Navigate to="/app/dashboard" replace />;
+  }
+
   function syncUrl(next: Partial<Record<string, string | number>>) {
     const nextSp = new URLSearchParams(sp);
     if (next.q !== undefined) nextSp.set("q", String(next.q));
@@ -66,7 +75,7 @@ export default function Units() {
     setSp(nextSp, { replace: true });
   }
 
-  // buscar nome do condomínio (se não veio pelo state)
+  // buscar nome do condomínio (se não veio pelo state — apenas para SUPERUSER que tem condoId na URL)
   useEffect(() => {
     if (!condoId || condoName) return;
     api.get(`/condominiums/${condoId}`)
@@ -77,7 +86,12 @@ export default function Units() {
 
   async function loadCountsAgg(): Promise<boolean> {
     try {
-      const r = await api.get<any>("/residents/count-by-unit", { params: { condoId, condominiumId: condoId } });
+      const params: Record<string, any> = {};
+      if (isSuperuser && condoId) {
+        params.condoId = condoId;
+        params.condominiumId = condoId;
+      }
+      const r = await api.get<any>("/residents/count-by-unit", { params });
       if (r?.data && typeof r.data === "object") {
         const map: Record<number, number> = {};
         for (const k of Object.keys(r.data)) map[Number(k)] = Number(r.data[k]) || 0;
@@ -90,9 +104,14 @@ export default function Units() {
 
   async function loadCountsFallback() {
     try {
-      const r = await api.get<any>("/residents", {
-        params: { condoId, condominiumId: condoId, q: "", page: 0, pageSize: 1000, sortBy: "name", sortDir: "asc" },
-      });
+      const params: Record<string, any> = {
+        q: "", page: 0, pageSize: 1000, sortBy: "name", sortDir: "asc",
+      };
+      if (isSuperuser && condoId) {
+        params.condoId = condoId;
+        params.condominiumId = condoId;
+      }
+      const r = await api.get<any>("/residents", { params });
       const pageData = normalizePage<ResidentLite>(r.data);
       const map: Record<number, number> = {};
       for (const res of pageData.items) {
@@ -107,15 +126,19 @@ export default function Units() {
   }
 
   async function load() {
-    if (!condoId) {
+    // SUPERUSER precisa de condoId na URL; outros roles usam JWT no backend
+    if (isSuperuser && !condoId) {
       toast.show({ type: "error", msg: "Condomínio inválido" });
       return;
     }
     try {
       setLoading(true);
-      const resp = await api.get<any>("/units", {
-        params: { condoId, condominiumId: condoId, q, page, pageSize, sortBy, sortDir },
-      });
+      const params: Record<string, any> = { q, page, pageSize, sortBy, sortDir };
+      if (isSuperuser && condoId) {
+        params.condoId = condoId;
+        params.condominiumId = condoId;
+      }
+      const resp = await api.get<any>("/units", { params });
 
       const pageData = normalizePage<Unit>(resp.data);
       setItems(pageData.items);
@@ -175,7 +198,8 @@ export default function Units() {
         toast.show({ type: "error", msg: "Número é obrigatório" });
         return;
       }
-      if (!condoId) {
+      // Para SUPERUSER, condoId é obrigatório no POST; para outros, o backend usa JWT
+      if (isSuperuser && !condoId) {
         toast.show({ type: "error", msg: "Condomínio inválido" });
         return;
       }
@@ -187,11 +211,12 @@ export default function Units() {
         });
         toast.show({ type: "success", msg: "Unidade atualizada" });
       } else {
+        // condominiumId é enviado mas para não-SUPERUSER o backend usa JWT
         await api.post("/units", {
           number: form.number.trim(),
           block: form.block.trim() || null,
-          condoId,
-          condominiumId: condoId,
+          condoId: condoId || undefined,
+          condominiumId: condoId || undefined,
         });
         toast.show({ type: "success", msg: "Unidade criada" });
         setPage(0);
@@ -258,9 +283,11 @@ export default function Units() {
           <button type="button" onClick={goResidents} className="text-blue-600 hover:underline">
             Ir para Moradores →
           </button>
-          <button type="button" onClick={openCreate} className="bg-slate-900 text-white px-4 py-2 rounded-lg">
-            Nova unidade
-          </button>
+          {canManage && (
+            <button type="button" onClick={openCreate} className="bg-slate-900 text-white px-4 py-2 rounded-lg">
+              Nova unidade
+            </button>
+          )}
         </div>
       </div>
 
@@ -329,36 +356,51 @@ export default function Units() {
 
       {/* Lista agrupada por bloco */}
       {loading ? (
-        <div className="text-slate-500">Carregando…</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 animate-pulse h-36" />
+          ))}
+        </div>
       ) : (
         <div className="space-y-6">
           {groupKeys.map((g) => (
             <div key={g}>
-              <div className="font-semibold text-base mb-2">{g}</div>
+              <div className="font-semibold text-base mb-2 text-slate-800">{g}</div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {groups[g].map((u) => {
                   const c = counts[u.id] ?? u.residentCount ?? 0;
                   return (
-                    <div key={u.id} className="rounded-xl border p-4 shadow-sm">
+                    <div key={u.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 transition-shadow hover:shadow-md">
                       <div className="flex items-start justify-between">
-                        <div className="font-semibold">
-                          Unidade {u.number}{u.block ? ` • Bloco ${u.block}` : ""}
+                        <div>
+                          <div className="font-semibold text-slate-900 text-lg">
+                            Unidade {u.number}
+                          </div>
+                          <div className="text-slate-500 text-sm mt-1">
+                            {u.block ? `Bloco ${u.block}` : "Sem bloco"}
+                          </div>
                         </div>
-                        <span className="text-xs border px-2 py-1 rounded-full">
+                        <span className="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-medium">
                           {c} {c === 1 ? "morador" : "moradores"}
                         </span>
                       </div>
-                      <div className="mt-3 flex gap-4 text-sm">
-                        <button type="button" onClick={() => openEdit(u)} className="text-blue-600">Editar</button>
-                        <button type="button" onClick={() => onDelete(u)} className="text-red-600">Excluir</button>
-                      </div>
+                      {canManage && (
+                        <div className="mt-4 flex gap-4 text-sm">
+                          <button type="button" onClick={() => openEdit(u)} className="text-blue-600 hover:underline">Editar</button>
+                          <button type="button" onClick={() => onDelete(u)} className="text-red-600 hover:underline">Excluir</button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             </div>
           ))}
-          {items.length === 0 && <div className="text-slate-500">Nenhuma unidade encontrada.</div>}
+          {items.length === 0 && (
+            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-slate-500 text-sm">
+              Nenhuma unidade encontrada.
+            </div>
+          )}
         </div>
       )}
 

@@ -7,13 +7,15 @@ import com.example.condo.repo.CondominiumRepository;
 import com.example.condo.repo.ResidentRepository;
 import com.example.condo.repo.UnitRepository;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
 
 @Component
-@Profile("dev")
+@Profile({"dev", "test"})
+@Order(10)
 public class DevData implements CommandLineRunner {
 
   private final CondominiumRepository condos;
@@ -41,62 +43,105 @@ public class DevData implements CommandLineRunner {
   public void run(String... args) {
     final String tenant = "demo";
 
-    // Condo Demo
-    Condominium c1 = condos.findByTenantIdAndName(tenant, "Condo Demo")
+    Condominium condoDemo = upsertCondominium(tenant, "Condo Demo", "11222333000181",
+        Condominium.ParkingPolicyMode.DRAW, Condominium.ParkingDrawFrequency.QUARTERLY, null);
+    Condominium bossaNova = upsertCondominium(tenant, "Bossa Nova", "31041096000160",
+        Condominium.ParkingPolicyMode.FIXED, Condominium.ParkingDrawFrequency.CUSTOM, 12);
+    Condominium parqueCentral = upsertCondominium(tenant, "Parque Central", "45098765000144",
+        Condominium.ParkingPolicyMode.DRAW, Condominium.ParkingDrawFrequency.MONTHLY, null);
+
+    seedCondoUnitsAndResidents(tenant, condoDemo, new String[][]{
+        {"101", "A", "Gilberto Lima", "giba@gmail.com", "1399908122"},
+        {"101", "B", "Macileide Pereira", "mahoab@gmail.com", "13988056914"},
+        {"202", "B", "Carla Souza", "carla@condodemo.com", "13988990011"}
+    });
+
+    seedCondoUnitsAndResidents(tenant, bossaNova, new String[][]{
+        {"11", "T1", "Rafaela Prado", "rafaela@bossanova.com", "11990000001"},
+        {"12", "T1", "Bruno Mello", "bruno@bossanova.com", "11990000002"}
+    });
+
+    seedCondoUnitsAndResidents(tenant, parqueCentral, new String[][]{
+        {"301", "C", "Amanda Lopes", "amanda@parquecentral.com", "21990000001"},
+        {"302", "C", "Diego Rocha", "diego@parquecentral.com", "21990000002"}
+    });
+  }
+
+  private Condominium upsertCondominium(
+      String tenant,
+      String name,
+      String cnpj,
+      Condominium.ParkingPolicyMode parkingPolicyMode,
+      Condominium.ParkingDrawFrequency parkingDrawFrequency,
+      Integer drawIntervalMonths
+  ) {
+    Condominium condominium = condos.findByTenantIdAndName(tenant, name)
         .orElseGet(() -> {
           Condominium c = new Condominium();
           c.setTenantId(tenant);
-          c.setName("Condo Demo");
-          c.setCnpj("11222333000181"); // sem máscara
-          return condos.save(c);
+          c.setName(name);
+          c.setCnpj(cnpj);
+          return c;
         });
 
-    // Bossa Nova (não populamos unidades/moradores para ficar com 0)
-    @SuppressWarnings("unused")
-    Condominium c2 = condos.findByTenantIdAndName(tenant, "Bossa Nova")
-        .orElseGet(() -> {
-          Condominium c = new Condominium();
-          c.setTenantId(tenant);
-          c.setName("Bossa Nova");
-          c.setCnpj("31041096000160"); // sem máscara
-          return condos.save(c);
-        });
+    condominium.setParkingPolicyMode(parkingPolicyMode);
+    condominium.setParkingDrawFrequency(parkingDrawFrequency);
+    condominium.setDrawIntervalMonths(drawIntervalMonths);
+    condominium.setAllowManualAssignments(true);
+    condominium.setAllowResidentRegistration(parkingPolicyMode == Condominium.ParkingPolicyMode.DRAW);
+    condominium.setMaxVehiclesPerUnit(1);
+    condominium.setParkingRules(parkingPolicyMode == Condominium.ParkingPolicyMode.FIXED
+        ? "Vagas fixas definidas pela administracao do condominio."
+        : "Inscricoes abertas conforme politica vigente do condominio.");
 
-    // Popula dados do Condo Demo se estiver vazio
-    if (units.countByTenantIdAndCondominiumId(tenant, c1.getId()) == 0) {
-      Unit u101 = new Unit();
-      u101.setTenantId(tenant);
-      u101.setCondominiumId(c1.getId());
-      u101.setNumber("101");
-      u101.setBlock("A");
-      u101.setCode(buildCode(u101.getNumber(), u101.getBlock()));
-      u101 = units.save(u101);
+    return condos.save(condominium);
+  }
 
-      Unit u202 = new Unit();
-      u202.setTenantId(tenant);
-      u202.setCondominiumId(c1.getId());
-      u202.setNumber("202");
-      u202.setBlock("B");
-      u202.setCode(buildCode(u202.getNumber(), u202.getBlock()));
-      u202 = units.save(u202);
-
-      Resident r1 = new Resident();
-      r1.setTenantId(tenant);
-      r1.setCondominiumId(c1.getId());
-      r1.setUnitId(u101.getId());
-      r1.setName("Gilberto Lima");
-      r1.setEmail("giba@gmail.com");
-      r1.setPhone("1399908122");
-      residents.save(r1);
-
-      Resident r2 = new Resident();
-      r2.setTenantId(tenant);
-      r2.setCondominiumId(c1.getId());
-      r2.setUnitId(u202.getId());
-      r2.setName("Macileide Pereira");
-      r2.setEmail("mahoab@gmail.com");
-      r2.setPhone("13988056914");
-      residents.save(r2);
+  private void seedCondoUnitsAndResidents(String tenant, Condominium condominium, String[][] fixtures) {
+    for (String[] fixture : fixtures) {
+      Unit unit = ensureUnit(tenant, condominium.getId(), fixture[0], fixture[1]);
+      ensureResident(tenant, condominium.getId(), unit.getId(), fixture[2], fixture[3], fixture[4]);
     }
+  }
+
+  private Unit ensureUnit(String tenant, Long condominiumId, String number, String block) {
+    var existing = units.searchWithCount(tenant, condominiumId, number, org.springframework.data.domain.PageRequest.of(0, 20))
+        .getContent()
+        .stream()
+        .filter(u -> number.equalsIgnoreCase(u.getNumber()) && block.equalsIgnoreCase(u.getBlock() == null ? "" : u.getBlock()))
+        .findFirst();
+
+    if (existing.isPresent()) {
+      return units.findByTenantIdAndId(tenant, existing.get().getId()).orElseThrow();
+    }
+
+    Unit unit = new Unit();
+    unit.setTenantId(tenant);
+    unit.setCondominiumId(condominiumId);
+    unit.setNumber(number);
+    unit.setBlock(block);
+    unit.setCode(buildCode(number, block));
+    return units.save(unit);
+  }
+
+  private void ensureResident(String tenant, Long condominiumId, Long unitId, String name, String email, String phone) {
+    boolean exists = residents.searchWithUnit(tenant, condominiumId, null, email, org.springframework.data.domain.PageRequest.of(0, 20))
+        .getContent()
+        .stream()
+        .map(row -> (Resident) row[0])
+        .anyMatch(r -> email.equalsIgnoreCase(r.getEmail()));
+
+    if (exists) {
+      return;
+    }
+
+    Resident resident = new Resident();
+    resident.setTenantId(tenant);
+    resident.setCondominiumId(condominiumId);
+    resident.setUnitId(unitId);
+    resident.setName(name);
+    resident.setEmail(email);
+    resident.setPhone(phone);
+    residents.save(resident);
   }
 }

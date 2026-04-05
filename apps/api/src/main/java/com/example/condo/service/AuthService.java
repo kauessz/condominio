@@ -60,11 +60,14 @@ public class AuthService {
             throw new UnauthorizedException("Credenciais inválidas");
         }
 
-        // Gera token JWT
+        // Gera token JWT com claims de isolamento de tenant
         String token = jwtUtils.generate(
             user.getEmail(),
             tenantId,
-            user.getRole().name()
+            user.getRole().name(),
+            user.getCondominiumId(),
+            user.getUnitId(),
+            user.getId()
         );
 
         return LoginResponse.of(
@@ -72,7 +75,10 @@ public class AuthService {
             user.getEmail(),
             user.getName(),
             user.getRole(),
-            tenantId
+            tenantId,
+            user.getCondominiumId(),
+            user.getUnitId(),
+            user.getId()
         );
     }
 

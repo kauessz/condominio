@@ -15,11 +15,11 @@ import org.springframework.web.bind.annotation.*;
  * Controller de condomínios.
  *
  * Endpoints:
- * - GET    /condominiums           -> Lista com paginação
- * - GET    /condominiums/{id}      -> Detalhes de um condomínio
- * - POST   /condominiums           -> Criar condomínio (ADMIN only)
- * - PUT    /condominiums/{id}      -> Atualizar condomínio (ADMIN only)
- * - DELETE /condominiums/{id}      -> Deletar condomínio (ADMIN only)
+ * - GET    /condominiums           -> Lista com paginação (qualquer autenticado)
+ * - GET    /condominiums/{id}      -> Detalhes de um condomínio (qualquer autenticado)
+ * - POST   /condominiums           -> Criar condomínio (SUPERUSER only)
+ * - PUT    /condominiums/{id}      -> Atualizar condomínio (SUPERUSER only)
+ * - DELETE /condominiums/{id}      -> Deletar condomínio (SUPERUSER only)
  */
 @RestController
 @RequestMapping({"/condominiums", "/api/condominiums"})
@@ -35,6 +35,7 @@ public class CondominiumController {
      * GET /condominiums
      *
      * Lista condomínios com paginação e contadores.
+     * Retorna apenas os condomínios do tenant do usuário autenticado.
      *
      * Query params:
      * - page: número da página (default: 0)
@@ -89,7 +90,7 @@ public class CondominiumController {
      *
      * Cria um novo condomínio.
      *
-     * Requer role: ADMIN
+     * Requer role: SUPERUSER
      *
      * Body:
      * {
@@ -101,7 +102,7 @@ public class CondominiumController {
      * - name: obrigatório, 3-200 caracteres
      * - cnpj: formato XX.XXX.XXX/XXXX-XX (opcional)
      *
-     * Resposta (200):
+     * Resposta (201):
      * {
      *   "id": 1,
      *   "name": "Edifício Solar",
@@ -110,7 +111,7 @@ public class CondominiumController {
      * }
      */
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('SUPERUSER')")
     public ResponseEntity<CondominiumResponse> create(
         @Valid @RequestBody CreateCondominiumRequest request
     ) {
@@ -123,7 +124,7 @@ public class CondominiumController {
      *
      * Atualiza um condomínio existente (atualização parcial).
      *
-     * Requer role: ADMIN
+     * Requer role: SUPERUSER
      *
      * Body (todos os campos opcionais):
      * {
@@ -135,7 +136,7 @@ public class CondominiumController {
      * - 404: Condomínio não encontrado
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('SUPERUSER')")
     public ResponseEntity<CondominiumResponse> update(
         @PathVariable Long id,
         @Valid @RequestBody UpdateCondominiumRequest request
@@ -149,7 +150,7 @@ public class CondominiumController {
      *
      * Deleta um condomínio.
      *
-     * Requer role: ADMIN
+     * Requer role: SUPERUSER
      *
      * Regra de negócio: não permite deletar se houver unidades ou moradores vinculados.
      *
@@ -160,9 +161,21 @@ public class CondominiumController {
      * - 422: Condomínio tem vínculos (unidades/moradores)
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('SUPERUSER')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         condominiumService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{id}/activate")
+    @PreAuthorize("hasRole('SUPERUSER')")
+    public ResponseEntity<CondominiumResponse> activate(@PathVariable Long id) {
+        return ResponseEntity.ok(condominiumService.setActive(id, true));
+    }
+
+    @PostMapping("/{id}/deactivate")
+    @PreAuthorize("hasRole('SUPERUSER')")
+    public ResponseEntity<CondominiumResponse> deactivate(@PathVariable Long id) {
+        return ResponseEntity.ok(condominiumService.setActive(id, false));
     }
 }

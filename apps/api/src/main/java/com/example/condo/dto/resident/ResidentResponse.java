@@ -4,6 +4,9 @@ import com.example.condo.entity.Resident;
 
 /**
  * DTO para resposta de morador.
+ *
+ * unitDisplay é um campo computado para facilitar a exibição no frontend:
+ *   ex: "101 - Bloco A"
  */
 public record ResidentResponse(
     Long id,
@@ -12,10 +15,26 @@ public record ResidentResponse(
     String unitCode,
     String unitNumber,
     String unitBlock,
+    String unitDisplay,
     String name,
     String email,
     String phone
 ) {
+
+    /**
+     * Computa a label de exibição da unidade.
+     * Ex: "101 - Bloco A", "202", ou null se sem dados de unidade.
+     */
+    private static String buildUnitDisplay(String unitNumber, String unitBlock) {
+        if (unitNumber == null && unitBlock == null) return null;
+        StringBuilder sb = new StringBuilder();
+        if (unitNumber != null) sb.append(unitNumber);
+        if (unitBlock != null && !unitBlock.isBlank()) {
+            if (!sb.isEmpty()) sb.append(" - Bloco ");
+            sb.append(unitBlock);
+        }
+        return sb.toString();
+    }
 
     /**
      * Converte entidade para DTO (sem dados da unidade).
@@ -25,6 +44,7 @@ public record ResidentResponse(
             resident.getId(),
             resident.getCondominiumId(),
             resident.getUnitId(),
+            null,
             null,
             null,
             null,
@@ -50,6 +70,7 @@ public record ResidentResponse(
             unitCode,
             unitNumber,
             unitBlock,
+            buildUnitDisplay(unitNumber, unitBlock),
             resident.getName(),
             resident.getEmail(),
             resident.getPhone()
