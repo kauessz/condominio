@@ -279,6 +279,9 @@ public class SecurityConfig {
                     "/api/assemblies/**"
                 ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "MORADOR")
                 .requestMatchers(HttpMethod.POST,
+                    "/api/assemblies/*/agenda/*/vote"
+                ).hasAnyRole("MORADOR", "SINDICO")
+                .requestMatchers(HttpMethod.POST,
                     "/api/assemblies/**"
                 ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO")
                 .requestMatchers(HttpMethod.PATCH,

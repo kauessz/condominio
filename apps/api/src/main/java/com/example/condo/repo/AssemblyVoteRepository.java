@@ -21,4 +21,7 @@ public interface AssemblyVoteRepository extends JpaRepository<AssemblyVote, Long
 
     @Query("select count(v) from AssemblyVote v where v.agendaItemId = :itemId")
     long countByItem(@Param("itemId") Long itemId);
+
+    @Query("select v.optionId, count(v) from AssemblyVote v where v.agendaItemId = :itemId and v.optionId is not null group by v.optionId")
+    List<Object[]> countByItemGroupedByOption(@Param("itemId") Long itemId);
 }

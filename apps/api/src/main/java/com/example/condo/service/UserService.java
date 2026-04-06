@@ -1,13 +1,16 @@
 package com.example.condo.service;
 
 import com.example.condo.dto.common.PageResponse;
+import com.example.condo.dto.assembly.AssemblyElectionCandidateResponse;
 import com.example.condo.dto.user.CreateUserRequest;
 import com.example.condo.dto.user.UpdateUserRequest;
 import com.example.condo.dto.user.UserResponse;
+import com.example.condo.entity.Resident;
 import com.example.condo.entity.User;
 import com.example.condo.exception.BusinessException;
 import com.example.condo.exception.ResourceNotFoundException;
 import com.example.condo.repo.CondominiumRepository;
+import com.example.condo.repo.ResidentRepository;
 import com.example.condo.repo.UnitRepository;
 import com.example.condo.repo.UserRepository;
 import com.example.condo.security.Role;
@@ -25,7 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -49,6 +54,7 @@ public class UserService {
 
     private final UserRepository userRepo;
     private final CondominiumRepository condominiumRepo;
+    private final ResidentRepository residentRepo;
     private final UnitRepository unitRepo;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
@@ -56,12 +62,14 @@ public class UserService {
     public UserService(
         UserRepository userRepo,
         CondominiumRepository condominiumRepo,
+        ResidentRepository residentRepo,
         UnitRepository unitRepo,
         PasswordEncoder passwordEncoder,
         AuditService auditService
     ) {
         this.userRepo = userRepo;
         this.condominiumRepo = condominiumRepo;
+        this.residentRepo = residentRepo;
         this.unitRepo = unitRepo;
         this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
@@ -95,8 +103,9 @@ public class UserService {
             case SINDICO -> listResidentsByCondominium(tenantId, ctx, normalizedQuery, pageable);
         };
 
+        Map<Long, Long> residentByUserId = mapResidentsByUserId(tenantId, result.getContent());
         List<UserResponse> items = result.getContent().stream()
-            .map(UserResponse::from)
+            .map(user -> UserResponse.from(user, residentByUserId.get(user.getId())))
             .toList();
 
         return PageResponse.of(items, pageable.getPageNumber(), pageable.getPageSize(), result.getTotalElements());
@@ -111,7 +120,8 @@ public class UserService {
         String tenantId = TenantContext.get();
         User user = findOrThrow(tenantId, id);
         assertAccessToUser(user);
-        return UserResponse.from(user);
+        Long residentId = residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).map(Resident::getId).orElse(null);
+        return UserResponse.from(user, residentId);
     }
 
     /**
@@ -129,7 +139,7 @@ public class UserService {
 
         // --- Validar role ---
         Role newRole = parseRole(request.role());
-        validateCreatorScope(newRole);
+        validateCreatePermission(newRole);
 
         // --- Resolver condominiumId com isolamento de tenant ---
         Long condominiumId = UserContext.resolveCondominiumId(request.condominiumId());
@@ -144,7 +154,7 @@ public class UserService {
         }
 
         // --- Validar unicidade de e-mail ---
-        if (userRepo.existsByTenantIdAndEmail(tenantId, request.email())) {
+        if (userRepo.existsByTenantIdAndEmail(tenantId, request.email().trim().toLowerCase())) {
             throw new BusinessException("Já existe um usuário com o e-mail: " + request.email());
         }
 
@@ -166,23 +176,26 @@ public class UserService {
         validateRoleScope(tenantId, user);
 
         user = userRepo.save(user);
+        syncResidentAfterUserSave(tenantId, user, false);
         auditService.log("CREATE", "User", user.getId(), user.getCondominiumId(), null, UserResponse.from(user));
-        return UserResponse.from(user);
+        return UserResponse.from(user, residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).map(Resident::getId).orElse(null));
     }
 
     /**
      * Atualiza role e/ou condomínio de um usuário.
      *
-     * Uso exclusivo de SUPERUSER — garantido no Controller via @PreAuthorize.
      */
     @Transactional
     public UserResponse update(Long id, UpdateUserRequest request) {
         String tenantId = TenantContext.get();
         User user = findOrThrow(tenantId, id);
-        UserResponse before = UserResponse.from(user);
+        assertManagePermission(user, true);
+        Long linkedResidentId = residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).map(Resident::getId).orElse(null);
+        UserResponse before = UserResponse.from(user, linkedResidentId);
 
         if (request.role() != null) {
             Role newRole = parseRole(request.role());
+            validateUpdatePermission(user, newRole);
 
             // Não deixar remover SUPERUSER de si mesmo
             if (user.getRole() == Role.SUPERUSER && newRole != Role.SUPERUSER) {
@@ -212,25 +225,32 @@ public class UserService {
         validateRoleScope(tenantId, user);
 
         user = userRepo.save(user);
-        auditService.log("UPDATE", "User", user.getId(), user.getCondominiumId(), before, UserResponse.from(user));
-        return UserResponse.from(user);
+        syncResidentAfterUserSave(tenantId, user, true);
+        Long residentId = residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).map(Resident::getId).orElse(null);
+        auditService.log("UPDATE", "User", user.getId(), user.getCondominiumId(), before, UserResponse.from(user, residentId));
+        return UserResponse.from(user, residentId);
     }
 
     /**
      * Remove um usuário do sistema.
-     * Uso exclusivo de SUPERUSER — garantido no Controller.
      */
     @Transactional
     public void delete(Long id) {
         String tenantId = TenantContext.get();
         User user = findOrThrow(tenantId, id);
+        assertManagePermission(user, false);
 
         Long myId = UserContext.get() != null ? UserContext.get().userId() : null;
         if (user.getId().equals(myId)) {
             throw new BusinessException("Você não pode excluir a própria conta.");
         }
 
-        UserResponse before = UserResponse.from(user);
+        Long residentId = residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).map(Resident::getId).orElse(null);
+        UserResponse before = UserResponse.from(user, residentId);
+        residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).ifPresent(resident -> {
+            resident.setUserId(null);
+            residentRepo.save(resident);
+        });
         userRepo.delete(user);
         auditService.log("DELETE", "User", id, user.getCondominiumId(), before, null);
     }
@@ -259,6 +279,23 @@ public class UserService {
 
         if ("SINDICO".equalsIgnoreCase(ctx != null ? ctx.role() : null) && target.getRole() != Role.MORADOR) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Síndico pode acessar apenas moradores.");
+        }
+    }
+
+    private void assertManagePermission(User target, boolean allowAdmin) {
+        if (UserContext.isSuperuser()) {
+            return;
+        }
+        UserContext.Data ctx = UserContext.get();
+        String currentRole = ctx != null ? ctx.role() : null;
+        if (!"ADMIN".equalsIgnoreCase(currentRole) || !allowAdmin) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Apenas SUPERUSER ou ADMIN podem gerenciar usuários.");
+        }
+        if (ctx.condominiumId() == null || !ctx.condominiumId().equals(target.getCondominiumId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Acesso negado.");
+        }
+        if (target.getRole() == Role.SUPERUSER || target.getRole() == Role.ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ADMIN não pode editar perfis SUPERUSER ou ADMIN.");
         }
     }
 
@@ -306,7 +343,7 @@ public class UserService {
         }
     }
 
-    private void validateCreatorScope(Role newRole) {
+    private void validateCreatePermission(Role newRole) {
         if (UserContext.isSuperuser()) {
             return;
         }
@@ -318,8 +355,27 @@ public class UserService {
         if (newRole == Role.SUPERUSER) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Apenas SUPERUSER pode criar outro SUPERUSER.");
         }
-        if ("SINDICO".equalsIgnoreCase(currentRole) && newRole == Role.ADMIN) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Síndico não pode criar Administrador.");
+        if ("SINDICO".equalsIgnoreCase(currentRole)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Síndico possui acesso somente leitura ao módulo de usuários.");
+        }
+        if ("ADMIN".equalsIgnoreCase(currentRole) && (newRole == Role.ADMIN || newRole == Role.SUPERUSER)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ADMIN não pode criar perfis ADMIN ou SUPERUSER.");
+        }
+    }
+
+    private void validateUpdatePermission(User target, Role newRole) {
+        if (UserContext.isSuperuser()) {
+            return;
+        }
+        UserContext.Data ctx = UserContext.get();
+        if (ctx == null || !"ADMIN".equalsIgnoreCase(ctx.role())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Apenas SUPERUSER ou ADMIN podem editar usuários.");
+        }
+        if (newRole == Role.ADMIN || newRole == Role.SUPERUSER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ADMIN não pode promover usuário para ADMIN ou SUPERUSER.");
+        }
+        if (target.getRole() == Role.ADMIN || target.getRole() == Role.SUPERUSER) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ADMIN não pode editar perfis ADMIN ou SUPERUSER.");
         }
     }
 
@@ -397,5 +453,68 @@ public class UserService {
         SUPERUSER,
         ADMIN,
         SINDICO
+    }
+
+    public List<AssemblyElectionCandidateResponse> listElectionCandidates(Long condominiumIdParam) {
+        String tenantId = TenantContext.get();
+        Long condominiumId = UserContext.resolveCondominiumId(condominiumIdParam);
+        if (condominiumId == null) {
+            return List.of();
+        }
+
+        List<User> users = userRepo.findByTenantAndCondominiumAndRolesOrdered(
+            tenantId,
+            condominiumId,
+            Set.of(Role.MORADOR, Role.SINDICO)
+        );
+        Map<Long, Long> residentByUserId = mapResidentsByUserId(tenantId, users);
+        return users.stream()
+            .filter(user -> user.getUnitId() != null)
+            .map(user -> new AssemblyElectionCandidateResponse(
+                user.getId(),
+                residentByUserId.get(user.getId()),
+                user.getCondominiumId(),
+                user.getUnitId(),
+                user.getName(),
+                user.getRole().name(),
+                buildUnitLabel(tenantId, user.getUnitId())
+            ))
+            .toList();
+    }
+
+    private Map<Long, Long> mapResidentsByUserId(String tenantId, List<User> users) {
+        List<Long> userIds = users.stream().map(User::getId).toList();
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Long> result = new HashMap<>();
+        residentRepo.findByTenantIdAndUserIdIn(tenantId, userIds)
+            .forEach(resident -> result.put(resident.getUserId(), resident.getId()));
+        return result;
+    }
+
+    private String buildUnitLabel(String tenantId, Long unitId) {
+        if (unitId == null) {
+            return null;
+        }
+        return unitRepo.findByTenantIdAndId(tenantId, unitId)
+            .map(unit -> unit.getBlock() != null && !unit.getBlock().isBlank()
+                ? "Unidade " + unit.getNumber() + " • Bloco " + unit.getBlock()
+                : "Unidade " + unit.getNumber())
+            .orElse("Unidade #" + unitId);
+    }
+
+    private void syncResidentAfterUserSave(String tenantId, User user, boolean unlinkWhenNonResidentRole) {
+        residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).ifPresent(resident -> {
+            resident.setName(user.getName());
+            resident.setEmail(user.getEmail());
+            if (requiresUnit(user.getRole())) {
+                resident.setCondominiumId(user.getCondominiumId());
+                resident.setUnitId(user.getUnitId());
+            } else if (unlinkWhenNonResidentRole) {
+                resident.setUserId(null);
+            }
+            residentRepo.save(resident);
+        });
     }
 }

@@ -4,21 +4,26 @@ import com.example.condo.dto.resident.CreateResidentRequest;
 import com.example.condo.dto.resident.ResidentResponse;
 import com.example.condo.dto.resident.UpdateResidentRequest;
 import com.example.condo.entity.Resident;
+import com.example.condo.entity.User;
 import com.example.condo.exception.BusinessException;
 import com.example.condo.exception.ResourceNotFoundException;
 import com.example.condo.repo.CondominiumRepository;
 import com.example.condo.repo.ResidentRepository;
 import com.example.condo.repo.UnitRepository;
+import com.example.condo.repo.UserRepository;
+import com.example.condo.security.Role;
 import com.example.condo.tenant.TenantContext;
 import com.example.condo.tenant.UserContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Service para operações de moradores.
@@ -34,17 +39,23 @@ public class ResidentService {
     private final ResidentRepository residentRepo;
     private final CondominiumRepository condominiumRepo;
     private final UnitRepository unitRepo;
+    private final UserRepository userRepo;
+    private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
     public ResidentService(
         ResidentRepository residentRepo,
         CondominiumRepository condominiumRepo,
         UnitRepository unitRepo,
+        UserRepository userRepo,
+        PasswordEncoder passwordEncoder,
         AuditService auditService
     ) {
         this.residentRepo = residentRepo;
         this.condominiumRepo = condominiumRepo;
         this.unitRepo = unitRepo;
+        this.userRepo = userRepo;
+        this.passwordEncoder = passwordEncoder;
         this.auditService = auditService;
     }
 
@@ -70,7 +81,7 @@ public class ResidentService {
             String unitNumber = row.length > 2 ? (String) row[2] : null;
             String unitBlock = row.length > 3 ? (String) row[3] : null;
 
-            return ResidentResponse.withUnit(resident, unitCode, unitNumber, unitBlock);
+            return enrichAccount(ResidentResponse.withUnit(resident, unitCode, unitNumber, unitBlock), tenantId);
         });
     }
 
@@ -93,13 +104,13 @@ public class ResidentService {
         // Busca dados da unidade para retornar unitDisplay
         if (resident.getUnitId() != null) {
             return unitRepo.findByTenantIdAndId(tenantId, resident.getUnitId())
-                .map(unit -> ResidentResponse.withUnit(
+                .map(unit -> enrichAccount(ResidentResponse.withUnit(
                     resident, unit.getCode(), unit.getNumber(), unit.getBlock()
-                ))
-                .orElseGet(() -> ResidentResponse.from(resident));
+                ), tenantId))
+                .orElseGet(() -> enrichAccount(ResidentResponse.from(resident), tenantId));
         }
 
-        return ResidentResponse.from(resident);
+        return enrichAccount(ResidentResponse.from(resident), tenantId);
     }
 
     /**
@@ -133,11 +144,13 @@ public class ResidentService {
         resident.setName(request.name().trim());
         resident.setEmail(request.email() != null ? request.email().trim() : null);
         resident.setPhone(request.phone() != null ? request.phone().trim() : null);
+        maybeCreateLinkedUser(tenantId, resident, request.createAccount(), request.accessRole(), request.password());
 
         resident = residentRepo.save(resident);
-        auditService.log("CREATE", "Resident", resident.getId(), resident.getCondominiumId(), null, ResidentResponse.from(resident));
+        ResidentResponse after = enrichAccount(ResidentResponse.from(resident), tenantId);
+        auditService.log("CREATE", "Resident", resident.getId(), resident.getCondominiumId(), null, after);
 
-        return ResidentResponse.from(resident);
+        return after;
     }
 
     /**
@@ -149,7 +162,7 @@ public class ResidentService {
 
         Resident resident = residentRepo.findByTenantIdAndId(tenantId, id)
             .orElseThrow(() -> new ResourceNotFoundException("Morador", "id", id));
-        ResidentResponse before = ResidentResponse.from(resident);
+        ResidentResponse before = enrichAccount(ResidentResponse.from(resident), tenantId);
 
         // Para não-SUPERUSER, garante que o morador pertence ao condomínio do usuário
         Long effectiveCondoId = UserContext.resolveCondominiumId(resident.getCondominiumId());
@@ -170,11 +183,13 @@ public class ResidentService {
         if (request.name() != null) resident.setName(request.name().trim());
         if (request.email() != null) resident.setEmail(request.email().trim());
         if (request.phone() != null) resident.setPhone(request.phone().trim());
+        syncLinkedUser(tenantId, resident, request.hasAccount(), request.accessRole(), request.password());
 
         resident = residentRepo.save(resident);
-        auditService.log("UPDATE", "Resident", resident.getId(), resident.getCondominiumId(), before, ResidentResponse.from(resident));
+        ResidentResponse after = enrichAccount(ResidentResponse.from(resident), tenantId);
+        auditService.log("UPDATE", "Resident", resident.getId(), resident.getCondominiumId(), before, after);
 
-        return ResidentResponse.from(resident);
+        return after;
     }
 
     /**
@@ -192,7 +207,10 @@ public class ResidentService {
             throw new ResourceNotFoundException("Morador", "id", id);
         }
 
-        ResidentResponse before = ResidentResponse.from(resident);
+        ResidentResponse before = enrichAccount(ResidentResponse.from(resident), tenantId);
+        if (resident.getUserId() != null) {
+            userRepo.findByTenantIdAndId(tenantId, resident.getUserId()).ifPresent(userRepo::delete);
+        }
         residentRepo.delete(resident);
         auditService.log("DELETE", "Resident", id, resident.getCondominiumId(), before, null);
     }
@@ -250,5 +268,102 @@ public class ResidentService {
     private boolean isMorador() {
         UserContext.Data ctx = UserContext.get();
         return ctx != null && "MORADOR".equalsIgnoreCase(ctx.role());
+    }
+
+    private void maybeCreateLinkedUser(String tenantId, Resident resident, Boolean createAccount, String accessRole, String password) {
+        if (!Boolean.TRUE.equals(createAccount)) {
+            resident.setUserId(null);
+            return;
+        }
+        if (resident.getEmail() == null || resident.getEmail().isBlank()) {
+            throw new BusinessException("E-mail é obrigatório para criar conta de acesso.");
+        }
+        if (password == null || password.isBlank()) {
+            throw new BusinessException("Senha provisória é obrigatória para criar conta de acesso.");
+        }
+        Role role = parseResidentAccessRole(accessRole);
+        ensureUniqueEmail(tenantId, resident.getEmail(), null);
+
+        User user = new User();
+        user.setTenantId(tenantId);
+        user.setName(resident.getName());
+        user.setEmail(resident.getEmail().trim().toLowerCase());
+        user.setPasswordHash(passwordEncoder.encode(password));
+        user.setRole(role);
+        user.setCondominiumId(resident.getCondominiumId());
+        user.setUnitId(resident.getUnitId());
+        user.setMustChangePassword(true);
+        user = userRepo.save(user);
+        resident.setUserId(user.getId());
+    }
+
+    private void syncLinkedUser(String tenantId, Resident resident, Boolean hasAccount, String accessRole, String password) {
+        boolean shouldHaveAccount = hasAccount != null ? hasAccount : resident.getUserId() != null;
+        if (!shouldHaveAccount) {
+            if (resident.getUserId() != null) {
+                deleteLinkedUser(tenantId, resident);
+            }
+            return;
+        }
+        if (resident.getEmail() == null || resident.getEmail().isBlank()) {
+            throw new BusinessException("E-mail é obrigatório para vincular conta de acesso.");
+        }
+        if (resident.getUserId() == null) {
+            maybeCreateLinkedUser(tenantId, resident, true, accessRole, password);
+            return;
+        }
+        User user = userRepo.findByTenantIdAndId(tenantId, resident.getUserId())
+            .orElseThrow(() -> new ResourceNotFoundException("Usuário", "id", resident.getUserId()));
+        ensureUniqueEmail(tenantId, resident.getEmail(), user.getId());
+        user.setName(resident.getName());
+        user.setEmail(resident.getEmail().trim().toLowerCase());
+        user.setCondominiumId(resident.getCondominiumId());
+        user.setUnitId(resident.getUnitId());
+        user.setRole(parseResidentAccessRole(accessRole != null ? accessRole : user.getRole().name()));
+        if (password != null && !password.isBlank()) {
+            user.setPasswordHash(passwordEncoder.encode(password));
+            user.setMustChangePassword(true);
+        }
+        userRepo.save(user);
+    }
+
+    private void deleteLinkedUser(String tenantId, Resident resident) {
+        Long currentUserId = UserContext.get() != null ? UserContext.get().userId() : null;
+        if (Objects.equals(currentUserId, resident.getUserId())) {
+            throw new BusinessException("Você não pode remover a própria conta de acesso pelo cadastro do morador.");
+        }
+        userRepo.findByTenantIdAndId(tenantId, resident.getUserId()).ifPresent(userRepo::delete);
+        resident.setUserId(null);
+    }
+
+    private void ensureUniqueEmail(String tenantId, String email, Long ignoreUserId) {
+        userRepo.findByTenantIdAndEmailIgnoreCaseExcludingId(tenantId, email, ignoreUserId)
+            .ifPresent(existing -> {
+                throw new BusinessException("Já existe um usuário com o e-mail informado.");
+            });
+    }
+
+    private Role parseResidentAccessRole(String accessRole) {
+        String value = accessRole == null || accessRole.isBlank() ? "MORADOR" : accessRole.trim().toUpperCase();
+        Role role;
+        try {
+            role = Role.valueOf(value);
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException("Role inválida para conta de morador.");
+        }
+        if (!(role == Role.MORADOR || role == Role.SINDICO || role == Role.ZELADOR)) {
+            throw new BusinessException("Conta vinculada a morador só pode usar MORADOR, SINDICO ou ZELADOR.");
+        }
+        return role;
+    }
+
+    private ResidentResponse enrichAccount(ResidentResponse response, String tenantId) {
+        if (response.userId() == null) {
+            return response;
+        }
+        String accessRole = userRepo.findByTenantIdAndId(tenantId, response.userId())
+            .map(user -> user.getRole().name())
+            .orElse(null);
+        return ResidentResponse.withAccount(response, accessRole);
     }
 }

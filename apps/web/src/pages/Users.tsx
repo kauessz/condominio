@@ -14,6 +14,7 @@ type UserItem = {
   roleLabel: string;
   condominiumId?: number | null;
   unitId?: number | null;
+  residentId?: number | null;
   mustChangePassword: boolean;
   createdAt?: string;
 };
@@ -87,7 +88,9 @@ export default function Users() {
   const toast = useToast();
   const currentUser = getUser();
   const isSuperuser = currentUser?.role === "SUPERUSER";
+  const isAdmin = currentUser?.role === "ADMIN";
   const isSindico = currentUser?.role === "SINDICO";
+  const canManageUsers = isSuperuser || isAdmin;
 
   const [users, setUsers]     = useState<UserItem[]>([]);
   const [total, setTotal]     = useState(0);
@@ -170,10 +173,10 @@ export default function Users() {
     if (isSuperuser) {
       return ALL_ROLES;
     }
-    if (isSindico) {
+    if (isAdmin) {
       return ALL_ROLES.filter((role) => !["SUPERUSER", "ADMIN"].includes(role.value));
     }
-    return ALL_ROLES.filter((role) => role.value !== "SUPERUSER");
+    return ALL_ROLES.filter((role) => role.value === "MORADOR");
   }
 
   function formatUnitLabel(unit: UnitOption) {
@@ -313,6 +316,7 @@ export default function Users() {
         <button
           type="button"
           onClick={openCreate}
+          disabled={!canManageUsers}
           className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
         >
           Novo usuário
@@ -370,8 +374,9 @@ export default function Users() {
                 {isSuperuser && (
                   <th className="px-4 py-3.5 font-medium text-slate-600 text-xs uppercase tracking-wide">Condomínio</th>
                 )}
+                <th className="px-4 py-3.5 font-medium text-slate-600 text-xs uppercase tracking-wide">Vínculo</th>
                 <th className="px-4 py-3.5 font-medium text-slate-600 text-xs uppercase tracking-wide">Senha temp.</th>
-                {isSuperuser && (
+                {canManageUsers && (
                   <th className="px-4 py-3.5 font-medium text-slate-600 text-xs uppercase tracking-wide text-right">Ações</th>
                 )}
               </tr>
@@ -400,6 +405,9 @@ export default function Users() {
                         : <span className="text-slate-300 italic">—</span>}
                     </td>
                   )}
+                  <td className="px-4 py-3.5 text-slate-500 text-xs">
+                    {u.residentId ? `Morador #${u.residentId}` : "Conta avulsa"}
+                  </td>
                   <td className="px-4 py-3.5">
                     {u.mustChangePassword ? (
                       <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Pendente</span>
@@ -407,7 +415,7 @@ export default function Users() {
                       <span className="text-xs text-slate-400">Normal</span>
                     )}
                   </td>
-                  {isSuperuser && (
+                  {canManageUsers && (
                     <td className="px-4 py-3.5 text-right">
                       <div className="flex items-center justify-end gap-1">
                         {/* Botão editar */}
@@ -596,7 +604,7 @@ export default function Users() {
                 onChange={(e) => setEditState((s) => s ? { ...s, role: e.target.value } : s)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
               >
-                {ALL_ROLES.map((r) => (
+                {availableRoles().map((r) => (
                   <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </select>
@@ -608,6 +616,7 @@ export default function Users() {
                 value={editState.condominiumId}
                 onChange={(e) => setEditState((s) => s ? { ...s, condominiumId: e.target.value, unitId: "" } : s)}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                disabled={!isSuperuser}
               >
                 <option value="">— Nenhum (apenas SUPERUSER) —</option>
                 {condos.map((c) => (

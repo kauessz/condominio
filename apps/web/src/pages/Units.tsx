@@ -5,6 +5,7 @@ import api from "../lib/api";
 import { canAccessModule, canManageUnits, getUser } from "../lib/auth";
 import { useToast } from "../components/Toast";
 import Modal from "../components/Modal";
+import { useSuperadminCondominiumFilter } from "../hooks/useSuperadminCondominiumFilter";
 
 type SortBy = "number" | "block";
 type SortDir = "asc" | "desc";
@@ -17,6 +18,7 @@ type Unit = {
 };
 
 type ResidentLite = { id: number; unitId?: number | null; unit?: { id: number } | null };
+type Condo = { id: number; name: string };
 
 function normalizePage<T = any>(raw: any): { items: T[]; total: number; page: number; size: number } {
   if (!raw) return { items: [], total: 0, page: 0, size: 0 };
@@ -37,11 +39,13 @@ export default function Units() {
   const loc = useLocation() as any;
 
   const currentUser = getUser();
-  const isSuperuser = currentUser?.role === "SUPERUSER";
+  const { selectedCondominiumId, setSelectedCondominiumId, isSuperuser } = useSuperadminCondominiumFilter(currentUser);
   const canManage = canManageUnits();
 
   // filtros
-  const condoId = Number(sp.get("condoId") || sp.get("condominiumId") || "0");
+  const condoId = isSuperuser
+    ? Number(selectedCondominiumId || "0")
+    : Number(sp.get("condoId") || sp.get("condominiumId") || currentUser?.condominiumId || "0");
   const [q, setQ] = useState(sp.get("q") ?? "");
   const [page, setPage] = useState<number>(Number(sp.get("page") ?? 0));
   const [pageSize, setPageSize] = useState<number>(Number(sp.get("pageSize") ?? 8));
@@ -58,6 +62,7 @@ export default function Units() {
 
   // contagens (fallback)
   const [counts, setCounts] = useState<Record<number, number>>({});
+  const [condos, setCondos] = useState<Condo[]>([]);
 
   const pageCount = useMemo(() => Math.max(1, Math.ceil(total / pageSize)), [total, pageSize]);
 
@@ -74,6 +79,17 @@ export default function Units() {
     if (next.sortDir !== undefined) nextSp.set("sortDir", String(next.sortDir));
     setSp(nextSp, { replace: true });
   }
+
+  useEffect(() => {
+    if (!isSuperuser) return;
+    api.get("/condominiums", { params: { pageSize: 100 } })
+      .then((r) => {
+        const raw = r.data;
+        const list: Condo[] = Array.isArray(raw.content) ? raw.content : Array.isArray(raw.items) ? raw.items : Array.isArray(raw) ? raw : [];
+        setCondos(list);
+      })
+      .catch(() => setCondos([]));
+  }, [isSuperuser]);
 
   // buscar nome do condomínio (se não veio pelo state — apenas para SUPERUSER que tem condoId na URL)
   useEffect(() => {
@@ -126,11 +142,6 @@ export default function Units() {
   }
 
   async function load() {
-    // SUPERUSER precisa de condoId na URL; outros roles usam JWT no backend
-    if (isSuperuser && !condoId) {
-      toast.show({ type: "error", msg: "Condomínio inválido" });
-      return;
-    }
     try {
       setLoading(true);
       const params: Record<string, any> = { q, page, pageSize, sortBy, sortDir };
@@ -182,6 +193,10 @@ export default function Units() {
   const [form, setForm] = useState<{ number: string; block: string }>({ number: "", block: "" });
 
   function openCreate() {
+    if (isSuperuser && !condoId) {
+      toast.show({ type: "error", msg: "Selecione um condomínio antes de criar uma unidade." });
+      return;
+    }
     setEditing(null);
     setForm({ number: "", block: "" });
     setOpenModal(true);
@@ -198,9 +213,8 @@ export default function Units() {
         toast.show({ type: "error", msg: "Número é obrigatório" });
         return;
       }
-      // Para SUPERUSER, condoId é obrigatório no POST; para outros, o backend usa JWT
       if (isSuperuser && !condoId) {
-        toast.show({ type: "error", msg: "Condomínio inválido" });
+        toast.show({ type: "error", msg: "Selecione um condomínio antes de salvar uma unidade." });
         return;
       }
 
@@ -248,10 +262,10 @@ export default function Units() {
   }
 
   function goResidents() {
-    nav(`/app/residents?condoId=${condoId}`, { state: { condoName } });
+    nav(`/app/residents`, { state: { condoName } });
   }
   function goBack() {
-    nav(`/app?condoId=${condoId}`);
+    nav(`/app/dashboard`);
   }
 
   function blockLabel(b?: string | null) {
@@ -290,6 +304,25 @@ export default function Units() {
           )}
         </div>
       </div>
+
+      {isSuperuser && (
+        <div className="mb-4 max-w-sm">
+          <label className="block text-sm text-slate-600 mb-1">Condomínio</label>
+          <select
+            value={selectedCondominiumId}
+            onChange={(e) => {
+              setSelectedCondominiumId(e.target.value);
+              setCondoName(condos.find((condo) => String(condo.id) === e.target.value)?.name ?? "");
+            }}
+            className="border rounded-lg px-3 py-2 w-full"
+          >
+            <option value="">Selecione um condomínio…</option>
+            {condos.map((condo) => (
+              <option key={condo.id} value={condo.id}>{condo.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Filtros */}
       <div className="flex flex-wrap gap-3 items-center mb-4">
@@ -398,7 +431,7 @@ export default function Units() {
           ))}
           {items.length === 0 && (
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-slate-500 text-sm">
-              Nenhuma unidade encontrada.
+              {isSuperuser && !condoId ? "Selecione um condomínio para visualizar e cadastrar unidades." : "Nenhuma unidade encontrada."}
             </div>
           )}
         </div>

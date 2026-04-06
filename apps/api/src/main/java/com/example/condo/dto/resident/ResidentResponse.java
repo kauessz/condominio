@@ -18,7 +18,10 @@ public record ResidentResponse(
     String unitDisplay,
     String name,
     String email,
-    String phone
+    String phone,
+    Long userId,
+    boolean hasAccount,
+    String accessRole
 ) {
 
     /**
@@ -50,7 +53,10 @@ public record ResidentResponse(
             null,
             resident.getName(),
             resident.getEmail(),
-            resident.getPhone()
+            resident.getPhone(),
+            resident.getUserId(),
+            resident.getUserId() != null,
+            null
         );
     }
 
@@ -73,7 +79,28 @@ public record ResidentResponse(
             buildUnitDisplay(unitNumber, unitBlock),
             resident.getName(),
             resident.getEmail(),
-            resident.getPhone()
+            resident.getPhone(),
+            resident.getUserId(),
+            resident.getUserId() != null,
+            null
+        );
+    }
+
+    public static ResidentResponse withAccount(ResidentResponse base, String accessRole) {
+        return new ResidentResponse(
+            base.id(),
+            base.condominiumId(),
+            base.unitId(),
+            base.unitCode(),
+            base.unitNumber(),
+            base.unitBlock(),
+            base.unitDisplay(),
+            base.name(),
+            base.email(),
+            base.phone(),
+            base.userId(),
+            base.hasAccount(),
+            accessRole
         );
     }
 }

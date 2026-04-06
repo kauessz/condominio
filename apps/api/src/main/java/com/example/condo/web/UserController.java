@@ -1,6 +1,7 @@
 package com.example.condo.web;
 
 import com.example.condo.dto.common.PageResponse;
+import com.example.condo.dto.assembly.AssemblyElectionCandidateResponse;
 import com.example.condo.dto.user.CreateUserRequest;
 import com.example.condo.dto.user.UpdateUserRequest;
 import com.example.condo.dto.user.UserResponse;
@@ -58,6 +59,14 @@ public class UserController {
         return ResponseEntity.ok(userService.getById(id));
     }
 
+    @GetMapping("/election-candidates")
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN','SINDICO')")
+    public ResponseEntity<java.util.List<AssemblyElectionCandidateResponse>> listElectionCandidates(
+        @RequestParam(value = "condominiumId", required = false) Long condominiumId
+    ) {
+        return ResponseEntity.ok(userService.listElectionCandidates(condominiumId));
+    }
+
     /**
      * POST /api/users
      *
@@ -79,10 +88,10 @@ public class UserController {
      * PUT /api/users/{id}
      *
      * Atualiza role e/ou condomínio de um usuário.
-     * Exclusivo para SUPERUSER — painel de administração.
+     * Permitido para SUPERUSER e ADMIN dentro do escopo permitido.
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('SUPERUSER')")
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN')")
     public ResponseEntity<UserResponse> update(
         @PathVariable Long id,
         @RequestBody UpdateUserRequest request
@@ -94,10 +103,10 @@ public class UserController {
      * DELETE /api/users/{id}
      *
      * Remove um usuário do sistema.
-     * Exclusivo para SUPERUSER.
+     * Permitido para SUPERUSER e ADMIN dentro do escopo permitido.
      */
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasRole('SUPERUSER')")
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN')")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         userService.delete(id);
         return ResponseEntity.noContent().build();

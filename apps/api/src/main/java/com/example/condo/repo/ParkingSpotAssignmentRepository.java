@@ -42,5 +42,45 @@ public interface ParkingSpotAssignmentRepository extends JpaRepository<ParkingSp
     List<ParkingSpotAssignment> findAllActiveForCondo(@Param("tenantId") String tenantId,
                                                        @Param("condoId") Long condoId);
 
+    List<ParkingSpotAssignment> findByTenantIdAndCondominiumIdAndStatus(String tenantId,
+                                                                        Long condominiumId,
+                                                                        ParkingSpotAssignment.Status status);
+
+    Optional<ParkingSpotAssignment> findByTenantIdAndId(String tenantId, Long id);
+
     List<ParkingSpotAssignment> findByDrawId(Long drawId);
+
+    @Query("""
+        select (count(a) > 0) from ParkingSpotAssignment a
+        where a.tenantId = :tenantId
+          and a.condominiumId = :condoId
+          and a.spotId = :spotId
+          and a.status = 'ACTIVE'
+          and (:ignoreId is null or a.id <> :ignoreId)
+          and a.validFrom <= :validUntil
+          and a.validUntil >= :validFrom
+    """)
+    boolean existsActiveConflictForSpot(@Param("tenantId") String tenantId,
+                                        @Param("condoId") Long condoId,
+                                        @Param("spotId") Long spotId,
+                                        @Param("validFrom") LocalDate validFrom,
+                                        @Param("validUntil") LocalDate validUntil,
+                                        @Param("ignoreId") Long ignoreId);
+
+    @Query("""
+        select (count(a) > 0) from ParkingSpotAssignment a
+        where a.tenantId = :tenantId
+          and a.condominiumId = :condoId
+          and a.unitId = :unitId
+          and a.status = 'ACTIVE'
+          and (:ignoreId is null or a.id <> :ignoreId)
+          and a.validFrom <= :validUntil
+          and a.validUntil >= :validFrom
+    """)
+    boolean existsActiveConflictForUnit(@Param("tenantId") String tenantId,
+                                        @Param("condoId") Long condoId,
+                                        @Param("unitId") Long unitId,
+                                        @Param("validFrom") LocalDate validFrom,
+                                        @Param("validUntil") LocalDate validUntil,
+                                        @Param("ignoreId") Long ignoreId);
 }

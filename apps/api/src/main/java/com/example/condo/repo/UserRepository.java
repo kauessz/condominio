@@ -8,12 +8,20 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
     @Query("select u from User u where u.tenantId = :t and lower(u.email) = lower(:email)")
     Optional<User> findByTenantAndEmail(@Param("t") String tenantId, @Param("email") String email);
+
+    @Query("select u from User u where u.tenantId = :tenantId and lower(u.email) = lower(:email) and (:ignoreId is null or u.id <> :ignoreId)")
+    Optional<User> findByTenantIdAndEmailIgnoreCaseExcludingId(
+        @Param("tenantId") String tenantId,
+        @Param("email") String email,
+        @Param("ignoreId") Long ignoreId
+    );
 
     /**
      * Lista paginada de todos os usuários do tenant (SUPERUSER).
@@ -120,4 +128,17 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * Verifica se e-mail já existe no tenant.
      */
     boolean existsByTenantIdAndEmail(String tenantId, String email);
+
+    @Query("""
+        select u from User u
+        where u.tenantId = :tenantId
+          and u.condominiumId = :condominiumId
+          and u.role in :roles
+        order by lower(u.name) asc, u.id asc
+        """)
+    List<User> findByTenantAndCondominiumAndRolesOrdered(
+        @Param("tenantId") String tenantId,
+        @Param("condominiumId") Long condominiumId,
+        @Param("roles") Collection<com.example.condo.security.Role> roles
+    );
 }

@@ -19,6 +19,9 @@ public class Resident {
   @Column(name = "unit_id")
   private Long unitId; // opcional
 
+  @Column(name = "user_id")
+  private Long userId;
+
   @Column(nullable = false)
   private String name;
 
@@ -40,6 +43,9 @@ public class Resident {
 
   public Long getUnitId() { return unitId; }
   public void setUnitId(Long unitId) { this.unitId = unitId; }
+
+  public Long getUserId() { return userId; }
+  public void setUserId(Long userId) { this.userId = userId; }
 
   public String getName() { return name; }
   public void setName(String name) { this.name = name; }

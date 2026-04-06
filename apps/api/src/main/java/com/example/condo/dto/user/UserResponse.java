@@ -17,12 +17,17 @@ public record UserResponse(
     String condominiumName,
     Long condominiumId,
     Long unitId,
+    Long residentId,
     boolean mustChangePassword,
     LocalDateTime createdAt,
     LocalDateTime updatedAt
 ) {
 
     public static UserResponse from(User user) {
+        return from(user, null);
+    }
+
+    public static UserResponse from(User user, Long residentId) {
         return new UserResponse(
             user.getId(),
             user.getName() != null ? user.getName() : user.getEmail(),
@@ -32,6 +37,7 @@ public record UserResponse(
             null,
             user.getCondominiumId(),
             user.getUnitId(),
+            residentId,
             user.isMustChangePassword(),
             user.getCreatedAt(),
             null

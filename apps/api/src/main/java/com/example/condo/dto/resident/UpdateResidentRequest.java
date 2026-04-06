@@ -19,6 +19,13 @@ public record UpdateResidentRequest(
     String email,
 
     @Size(max = 20, message = "Telefone deve ter no máximo 20 caracteres")
-    String phone
+    String phone,
+
+    Boolean hasAccount,
+
+    String accessRole,
+
+    @Size(min = 6, message = "Senha deve ter no mínimo 6 caracteres")
+    String password
 ) {
 }

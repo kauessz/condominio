@@ -19,8 +19,11 @@ public class AssemblyVote {
     @Column(name = "unit_id", nullable = false)
     private Long unitId;
 
+    @Column(name = "option_id")
+    private Long optionId;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "vote_value", nullable = false)
+    @Column(name = "vote_value")
     private VoteValue voteValue;
 
     @Column(name = "voted_by")
@@ -38,6 +41,9 @@ public class AssemblyVote {
 
     public Long getUnitId() { return unitId; }
     public void setUnitId(Long unitId) { this.unitId = unitId; }
+
+    public Long getOptionId() { return optionId; }
+    public void setOptionId(Long optionId) { this.optionId = optionId; }
 
     public VoteValue getVoteValue() { return voteValue; }
     public void setVoteValue(VoteValue voteValue) { this.voteValue = voteValue; }

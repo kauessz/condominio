@@ -23,7 +23,7 @@ class UserControllerTest {
         UserService userService = mock(UserService.class);
         when(userService.list("ana", 0, 20)).thenReturn(
             PageResponse.of(
-                List.of(new UserResponse(1L, "Ana", "ana@test.com", "ADMIN", "Administrador", null, 10L, null, false, null, null)),
+                List.of(new UserResponse(1L, "Ana", "ana@test.com", "ADMIN", "Administrador", null, 10L, null, null, false, null, null)),
                 0,
                 20,
                 1

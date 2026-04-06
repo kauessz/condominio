@@ -3,6 +3,7 @@ import { Navigate } from "react-router-dom";
 import api from "../lib/api";
 import { useToast } from "../components/Toast";
 import Modal from "../components/Modal";
+import CandidatePickerField from "../components/assembly/CandidatePickerField";
 import { canAccessModule, getUser } from "../lib/auth";
 import { useSuperadminCondominiumFilter } from "../hooks/useSuperadminCondominiumFilter";
 
@@ -19,6 +20,8 @@ type Assembly = {
   canVote?: boolean | null;
   alreadyVoted?: boolean | null;
   voteStatus?: string | null;
+  validatedAt?: string | null;
+  validatedBy?: number | null;
 };
 
 type Condo = {
@@ -33,17 +36,50 @@ type AgendaItem = {
   description?: string;
   requiresVote: boolean;
   sortOrder: number;
+  itemType: "GENERAL_VOTE" | "OFFICE_ELECTION";
+  officeName?: string | null;
+  resolutionStatus?: "NOT_APPLICABLE" | "PENDING" | "APPLIED" | "TIED";
+  winningOptionId?: number | null;
+  appliedUserId?: number | null;
+  options: { id: number; candidateUserId?: number | null; candidateName: string; candidateUnitLabel?: string | null; sortOrder: number }[];
 };
 
 type VoteResult = {
+  itemType?: "GENERAL_VOTE" | "OFFICE_ELECTION";
   itemId: number;
   itemTitle: string;
   totalVotes: number;
   totalUnits: number;
-  yes: number;
-  no: number;
-  abstain: number;
+  yes?: number;
+  no?: number;
+  abstain?: number;
   quorumPct: number;
+  officeName?: string;
+  resolutionStatus?: "NOT_APPLICABLE" | "PENDING" | "APPLIED" | "TIED";
+  winningOptionId?: number | null;
+  appliedUserId?: number | null;
+  candidates?: { optionId: number; candidateName: string; votes: number }[];
+  winnerOptionIds?: number[];
+};
+
+type Candidate = {
+  userId: number;
+  residentId?: number | null;
+  condominiumId: number;
+  unitId: number;
+  name: string;
+  role: string;
+  unitLabel?: string | null;
+};
+
+type DraftAgendaItem = {
+  clientId: string;
+  title: string;
+  description: string;
+  requiresVote: boolean;
+  itemType: "GENERAL_VOTE" | "OFFICE_ELECTION";
+  officeName: string;
+  candidateUserIds: number[];
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -67,6 +103,7 @@ const VOTE_STATUS_LABELS: Record<string, string> = {
   NOT_OPEN: "Votação ainda não liberada",
   BLOCKED_NO_UNIT: "Votação bloqueada: usuário sem unidade vinculada",
   NO_VOTABLE_ITEMS: "Assembleia sem itens de votação",
+  ROLE_CANNOT_VOTE: "Seu perfil pode acompanhar a assembleia, mas não votar como eleitor",
 };
 
 function VoteBar({ label, count, total, color }: { label: string; count: number; total: number; color: string }) {
@@ -89,7 +126,7 @@ export default function AssembliesPage() {
   const currentUser = getUser();
   const canAccess = canAccessModule("assemblies");
   const canManage = ["SUPERUSER", "ADMIN", "SINDICO"].includes(currentUser?.role ?? "");
-  const isMorador = currentUser?.role === "MORADOR";
+  const isVoterRole = ["MORADOR", "SINDICO"].includes(currentUser?.role ?? "");
   const { selectedCondominiumId, setSelectedCondominiumId, isSuperuser } = useSuperadminCondominiumFilter(currentUser);
 
   const [assemblies, setAssemblies] = useState<Assembly[]>([]);
@@ -105,9 +142,12 @@ export default function AssembliesPage() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", scheduledAt: "", location: "" });
+  const [createAgendaItems, setCreateAgendaItems] = useState<DraftAgendaItem[]>([]);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [loadingCandidates, setLoadingCandidates] = useState(false);
 
   const [showAgendaModal, setShowAgendaModal] = useState(false);
-  const [agendaForm, setAgendaForm] = useState({ title: "", description: "", requiresVote: true });
+  const [agendaForm, setAgendaForm] = useState({ title: "", description: "", requiresVote: true, itemType: "GENERAL_VOTE", officeName: "", candidateUserIds: [] as number[] });
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -151,6 +191,20 @@ export default function AssembliesPage() {
 
   useEffect(() => { if (canAccess) load(); /* eslint-disable-next-line */ }, [selectedCondominiumId, canAccess]);
 
+  useEffect(() => {
+    if (!canManage) return;
+    const condominiumId = selectedCondominiumId ? Number(selectedCondominiumId) : undefined;
+    if (isSuperuser && !condominiumId) {
+      setCandidates([]);
+      return;
+    }
+    setLoadingCandidates(true);
+    api.get("/users/election-candidates", { params: { condominiumId } })
+      .then((res) => setCandidates(Array.isArray(res.data) ? res.data : []))
+      .catch(() => setCandidates([]))
+      .finally(() => setLoadingCandidates(false));
+  }, [canManage, isSuperuser, selectedCondominiumId]);
+
   async function openDetail(assembly: Assembly) {
     setSelectedAssembly(assembly);
     setVoteResults(new Map());
@@ -186,10 +240,20 @@ export default function AssembliesPage() {
         description: form.description || null,
         scheduledAt: new Date(form.scheduledAt).toISOString(),
         location: form.location || null,
+        agendaItems: createAgendaItems.map((item, index) => ({
+          title: item.title,
+          description: item.description || null,
+          requiresVote: item.itemType === "OFFICE_ELECTION" ? true : item.requiresVote,
+          itemType: item.itemType,
+          officeName: item.itemType === "OFFICE_ELECTION" ? item.officeName : null,
+          candidateUserIds: item.itemType === "OFFICE_ELECTION" ? item.candidateUserIds : [],
+          sortOrder: index,
+        })),
       });
       toast.show({ type: "success", msg: "Assembleia criada!" });
       setShowCreate(false);
       setForm({ title: "", description: "", scheduledAt: "", location: "" });
+      setCreateAgendaItems([]);
       load();
     } catch (err: any) {
       toast.show({ type: "error", msg: err?.response?.data?.message || "Erro ao criar assembleia" });
@@ -202,10 +266,17 @@ export default function AssembliesPage() {
     if (!selectedAssembly) return;
     try {
       setSaving(true);
-      await api.post(`/api/assemblies/${selectedAssembly.id}/agenda`, agendaForm);
+      await api.post(`/api/assemblies/${selectedAssembly.id}/agenda`, {
+        title: agendaForm.title,
+        description: agendaForm.description,
+        requiresVote: agendaForm.itemType === "OFFICE_ELECTION" ? true : agendaForm.requiresVote,
+        itemType: agendaForm.itemType,
+        officeName: agendaForm.itemType === "OFFICE_ELECTION" ? agendaForm.officeName : undefined,
+        candidateUserIds: agendaForm.itemType === "OFFICE_ELECTION" ? agendaForm.candidateUserIds : [],
+      });
       toast.show({ type: "success", msg: "Item adicionado à pauta!" });
       setShowAgendaModal(false);
-      setAgendaForm({ title: "", description: "", requiresVote: true });
+      setAgendaForm({ title: "", description: "", requiresVote: true, itemType: "GENERAL_VOTE", officeName: "", candidateUserIds: [] });
       openDetail(selectedAssembly);
       load();
     } catch (err: any) {
@@ -229,10 +300,26 @@ export default function AssembliesPage() {
     }
   }
 
-  async function handleVote(assemblyId: number, itemId: number, vote: string) {
+  async function handleValidate(id: number) {
+    try {
+      await api.patch(`/api/assemblies/${id}/validate`);
+      toast.show({ type: "success", msg: "Assembleia validada e eleição efetivada." });
+      load();
+      if (selectedAssembly?.id === id) {
+        await openDetail(selectedAssembly);
+      }
+    } catch (err: any) {
+      toast.show({ type: "error", msg: err?.response?.data?.message || "Erro ao validar assembleia" });
+    }
+  }
+
+  async function handleVote(assemblyId: number, itemId: number, vote?: string, optionId?: number) {
     setVoting((prev) => new Map(prev).set(itemId, "saving"));
     try {
-      await api.post(`/api/assemblies/${assemblyId}/agenda/${itemId}/vote`, { vote });
+      await api.post(`/api/assemblies/${assemblyId}/agenda/${itemId}/vote`, {
+        vote,
+        optionId: optionId != null ? String(optionId) : undefined,
+      });
       toast.show({ type: "success", msg: "Voto registrado!" });
       const res = await api.get(`/api/assemblies/${assemblyId}/agenda/${itemId}/votes`);
       setVoteResults((prev) => new Map(prev).set(itemId, res.data));
@@ -245,6 +332,30 @@ export default function AssembliesPage() {
         return map;
       });
     }
+  }
+
+  function addCreateAgendaItem() {
+    setCreateAgendaItems((prev) => prev.concat({
+      clientId: `${Date.now()}-${prev.length}`,
+      title: "",
+      description: "",
+      requiresVote: true,
+      itemType: "GENERAL_VOTE",
+      officeName: "",
+      candidateUserIds: [],
+    }));
+  }
+
+  function updateCreateAgendaItem(clientId: string, patch: Partial<DraftAgendaItem>) {
+    setCreateAgendaItems((prev) => prev.map((item) => item.clientId === clientId ? { ...item, ...patch } : item));
+  }
+
+  function removeCreateAgendaItem(clientId: string) {
+    setCreateAgendaItems((prev) => prev.filter((item) => item.clientId !== clientId));
+  }
+
+  function roleCanVoteMessage() {
+    return VOTE_STATUS_LABELS[selectedAssembly?.voteStatus ?? ""] ?? "Votação indisponível.";
   }
 
   if (!canAccess) {
@@ -321,7 +432,7 @@ export default function AssembliesPage() {
                     <span>{assembly.condominiumName ?? `Condomínio #${assembly.condominiumId}`}</span>
                     <span>{assembly.agendaItemCount ?? 0} item(ns) de pauta</span>
                   </div>
-                  {isMorador && assembly.voteStatus && (
+                  {assembly.voteStatus && (
                     <p className={`text-xs mt-2 ${assembly.canVote ? "text-emerald-600" : "text-slate-500"}`}>
                       {VOTE_STATUS_LABELS[assembly.voteStatus] ?? assembly.voteStatus}
                     </p>
@@ -346,6 +457,14 @@ export default function AssembliesPage() {
                         className="text-xs px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 font-medium"
                       >
                         Encerrar
+                      </button>
+                    )}
+                    {assembly.status === "CLOSED" && !assembly.validatedAt && (
+                      <button
+                        onClick={() => handleValidate(assembly.id)}
+                        className="text-xs px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-medium"
+                      >
+                        Validar
                       </button>
                     )}
                   </div>
@@ -428,6 +547,83 @@ export default function AssembliesPage() {
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
             />
           </div>
+
+          <div className="border-t border-slate-100 pt-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">Pauta inicial</h3>
+              <button type="button" onClick={addCreateAgendaItem} className="text-xs text-indigo-600 hover:text-indigo-700 font-medium">
+                + Adicionar item
+              </button>
+            </div>
+
+            {createAgendaItems.length === 0 ? (
+              <p className="text-xs text-slate-400">Você pode criar a assembleia sem pauta inicial ou montar a pauta agora.</p>
+            ) : (
+              <div className="space-y-3">
+                {createAgendaItems.map((item, index) => (
+                  <div key={item.clientId} className="rounded-xl border border-slate-200 p-3 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold text-slate-500">Item {index + 1}</span>
+                      <button type="button" onClick={() => removeCreateAgendaItem(item.clientId)} className="text-xs text-rose-600 hover:text-rose-700">
+                        Remover
+                      </button>
+                    </div>
+                    <input
+                      value={item.title}
+                      onChange={(e) => updateCreateAgendaItem(item.clientId, { title: e.target.value })}
+                      placeholder="Título da pauta"
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                    />
+                    <textarea
+                      value={item.description}
+                      onChange={(e) => updateCreateAgendaItem(item.clientId, { description: e.target.value })}
+                      rows={2}
+                      placeholder="Descrição"
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm resize-none"
+                    />
+                    <select
+                      value={item.itemType}
+                      onChange={(e) => updateCreateAgendaItem(item.clientId, {
+                        itemType: e.target.value as "GENERAL_VOTE" | "OFFICE_ELECTION",
+                        requiresVote: e.target.value === "OFFICE_ELECTION" ? true : item.requiresVote,
+                        candidateUserIds: [],
+                      })}
+                      className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                    >
+                      <option value="GENERAL_VOTE">Votação geral</option>
+                      <option value="OFFICE_ELECTION">Eleição por cargo</option>
+                    </select>
+                    {item.itemType === "GENERAL_VOTE" ? (
+                      <label className="flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={item.requiresVote}
+                          onChange={(e) => updateCreateAgendaItem(item.clientId, { requiresVote: e.target.checked })}
+                        />
+                        Requer votação
+                      </label>
+                    ) : (
+                      <>
+                        <input
+                          value={item.officeName}
+                          onChange={(e) => updateCreateAgendaItem(item.clientId, { officeName: e.target.value })}
+                          placeholder="Cargo da eleição"
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                        />
+                        <CandidatePickerField
+                          candidates={candidates}
+                          selectedIds={item.candidateUserIds}
+                          onChange={(candidateUserIds) => updateCreateAgendaItem(item.clientId, { candidateUserIds })}
+                          disabled={loadingCandidates}
+                        />
+                        <p className="text-xs text-slate-400">Selecione os candidatos reais do condomínio com clique simples.</p>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -444,6 +640,11 @@ export default function AssembliesPage() {
               </span>
               <span className="text-xs text-slate-400">
                 {selectedAssembly.condominiumName ?? `Condomínio #${selectedAssembly.condominiumId}`}
+              </span>
+              <span className="text-xs text-slate-400">
+                {selectedAssembly.validatedAt
+                  ? `Validada em ${new Date(selectedAssembly.validatedAt).toLocaleString("pt-BR")}`
+                  : "Validação oficial pendente"}
               </span>
             </div>
 
@@ -470,7 +671,7 @@ export default function AssembliesPage() {
                 {agenda.map((item, index) => {
                   const result = voteResults.get(item.id);
                   const isVoting = voting.has(item.id);
-                  const totalVotes = result ? result.yes + result.no + result.abstain : 0;
+                  const totalVotes = result?.totalVotes ?? 0;
 
                   return (
                     <div key={item.id} className="border border-slate-100 rounded-xl p-4">
@@ -482,10 +683,15 @@ export default function AssembliesPage() {
                         {!item.requiresVote && (
                           <span className="text-xs bg-slate-100 text-slate-500 px-1.5 rounded">Informativo</span>
                         )}
+                        {item.itemType === "OFFICE_ELECTION" && (
+                          <span className="text-xs bg-indigo-50 text-indigo-600 px-1.5 rounded">
+                            Eleição {item.officeName ? `• ${item.officeName}` : ""}
+                          </span>
+                        )}
                       </div>
                       {item.description && <p className="text-xs text-slate-500 mb-3 ml-7">{item.description}</p>}
 
-                      {item.requiresVote && selectedAssembly.status === "OPEN" && isMorador && selectedAssembly.canVote && (
+                      {item.requiresVote && item.itemType === "GENERAL_VOTE" && selectedAssembly.status === "OPEN" && isVoterRole && selectedAssembly.canVote && (
                         <div className="flex gap-2 ml-7 mb-3">
                           {(["YES", "NO", "ABSTAIN"] as const).map((vote) => (
                             <button
@@ -504,9 +710,36 @@ export default function AssembliesPage() {
                         </div>
                       )}
 
-                      {item.requiresVote && isMorador && !selectedAssembly.canVote && !result && (
+                      {item.requiresVote && item.itemType === "OFFICE_ELECTION" && selectedAssembly.status === "OPEN" && isVoterRole && selectedAssembly.canVote && (
+                        <div className="ml-7 mb-3 grid gap-2">
+                          {item.options.map((option) => (
+                            <button
+                              key={option.id}
+                              disabled={isVoting}
+                              onClick={() => handleVote(selectedAssembly.id, item.id, undefined, option.id)}
+                              className="text-left text-xs px-3 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                            >
+                              Votar em {option.candidateName}{option.candidateUnitLabel ? ` • ${option.candidateUnitLabel}` : ""}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {item.requiresVote && !selectedAssembly.canVote && !result && (
                         <div className="ml-7 mb-3 text-xs text-slate-500">
-                          {VOTE_STATUS_LABELS[selectedAssembly.voteStatus ?? ""] ?? "Votação indisponível."}
+                          {roleCanVoteMessage()}
+                        </div>
+                      )}
+
+                      {item.itemType === "OFFICE_ELECTION" && item.options.length > 0 && (
+                        <div className="ml-7 mb-3 text-xs text-slate-500 space-y-1">
+                          <p>Candidatos:</p>
+                          {item.options.map((option) => (
+                            <p key={option.id}>
+                              {option.candidateName}{option.candidateUnitLabel ? ` • ${option.candidateUnitLabel}` : ""}
+                            </p>
+                          ))}
+                          <p>Status da efetivação: {item.resolutionStatus === "APPLIED" ? "Role efetivada" : item.resolutionStatus === "TIED" ? "Empate pendente de resolução" : item.resolutionStatus === "PENDING" ? "Aguardando validação oficial" : "Não aplicável"}</p>
                         </div>
                       )}
 
@@ -516,9 +749,25 @@ export default function AssembliesPage() {
                             <span>{totalVotes} voto(s)</span>
                             <span>Quórum: {result.quorumPct.toFixed(0)}% ({totalVotes}/{result.totalUnits})</span>
                           </div>
-                          <VoteBar label="Sim" count={result.yes} total={totalVotes} color="bg-emerald-500" />
-                          <VoteBar label="Não" count={result.no} total={totalVotes} color="bg-rose-500" />
-                          <VoteBar label="Abstenção" count={result.abstain} total={totalVotes} color="bg-slate-400" />
+                          {result.itemType === "OFFICE_ELECTION" ? (
+                            <div className="space-y-2">
+                              {(result.candidates ?? []).map((candidate) => (
+                                <VoteBar
+                                  key={candidate.optionId}
+                                  label={`${candidate.candidateName}${result.winnerOptionIds?.includes(candidate.optionId) ? " • vencedor" : ""}`}
+                                  count={candidate.votes}
+                                  total={Math.max(totalVotes, 1)}
+                                  color={result.winnerOptionIds?.includes(candidate.optionId) ? "bg-indigo-500" : "bg-slate-400"}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <>
+                              <VoteBar label="Sim" count={result.yes ?? 0} total={Math.max(totalVotes, 1)} color="bg-emerald-500" />
+                              <VoteBar label="Não" count={result.no ?? 0} total={Math.max(totalVotes, 1)} color="bg-rose-500" />
+                              <VoteBar label="Abstenção" count={result.abstain ?? 0} total={Math.max(totalVotes, 1)} color="bg-slate-400" />
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -567,14 +816,49 @@ export default function AssembliesPage() {
             />
           </div>
           <label className="flex items-center gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={agendaForm.requiresVote}
-              onChange={(e) => setAgendaForm({ ...agendaForm, requiresVote: e.target.checked })}
-              className="w-4 h-4 rounded text-indigo-600"
-            />
-            <span className="text-sm text-slate-700">Requer votação das unidades</span>
+            <span className="text-sm text-slate-700">Tipo de pauta</span>
+            <select
+              value={agendaForm.itemType}
+              onChange={(e) => setAgendaForm({ ...agendaForm, itemType: e.target.value as "GENERAL_VOTE" | "OFFICE_ELECTION", requiresVote: e.target.value === "OFFICE_ELECTION" ? true : agendaForm.requiresVote })}
+              className="border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="GENERAL_VOTE">Votação geral</option>
+              <option value="OFFICE_ELECTION">Eleição por cargo</option>
+            </select>
           </label>
+
+          {agendaForm.itemType === "GENERAL_VOTE" ? (
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={agendaForm.requiresVote}
+                onChange={(e) => setAgendaForm({ ...agendaForm, requiresVote: e.target.checked })}
+                className="w-4 h-4 rounded text-indigo-600"
+              />
+              <span className="text-sm text-slate-700">Requer votação das unidades</span>
+            </label>
+          ) : (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Cargo</label>
+                <input
+                  value={agendaForm.officeName}
+                  onChange={(e) => setAgendaForm({ ...agendaForm, officeName: e.target.value })}
+                  placeholder="Ex: Síndico"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Candidatos</label>
+                <CandidatePickerField
+                  candidates={candidates}
+                  selectedIds={agendaForm.candidateUserIds}
+                  onChange={(candidateUserIds) => setAgendaForm({ ...agendaForm, candidateUserIds })}
+                  disabled={loadingCandidates}
+                />
+              </div>
+            </>
+          )}
         </div>
       </Modal>
     </div>

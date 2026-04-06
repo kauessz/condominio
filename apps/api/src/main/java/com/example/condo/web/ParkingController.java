@@ -1,6 +1,9 @@
 package com.example.condo.web;
 
 import com.example.condo.dto.common.PageResponse;
+import com.example.condo.dto.parking.ParkingAssignmentRequest;
+import com.example.condo.dto.parking.ParkingAssignmentResponse;
+import com.example.condo.dto.parking.ParkingDrawRegistrationResponse;
 import com.example.condo.entity.*;
 import com.example.condo.service.ParkingService;
 import org.springframework.data.domain.Page;
@@ -92,7 +95,7 @@ public class ParkingController {
     }
 
     @GetMapping("/draws/{id}/registrations")
-    public List<ParkingDrawRegistration> getRegistrations(@PathVariable Long id) {
+    public List<ParkingDrawRegistrationResponse> getRegistrations(@PathVariable Long id) {
         return service.getRegistrations(id);
     }
 
@@ -129,7 +132,27 @@ public class ParkingController {
 
     @GetMapping("/assignments")
     @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN','SINDICO','ZELADOR')")
-    public List<ParkingSpotAssignment> allAssignments(@RequestParam(required = false) Long condominiumId) {
+    public List<ParkingAssignmentResponse> allAssignments(@RequestParam(required = false) Long condominiumId) {
         return service.getAllAssignments(condominiumId);
+    }
+
+    @PostMapping("/assignments")
+    @ResponseStatus(HttpStatus.CREATED)
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN','SINDICO')")
+    public ParkingAssignmentResponse createAssignment(@RequestBody ParkingAssignmentRequest request) {
+        return service.createManualAssignment(request);
+    }
+
+    @PatchMapping("/assignments/{id}")
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN','SINDICO')")
+    public ParkingAssignmentResponse updateAssignment(@PathVariable Long id, @RequestBody ParkingAssignmentRequest request) {
+        return service.updateAssignment(id, request);
+    }
+
+    @DeleteMapping("/assignments/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @PreAuthorize("hasAnyRole('SUPERUSER','ADMIN','SINDICO')")
+    public void cancelAssignment(@PathVariable Long id) {
+        service.cancelAssignment(id);
     }
 }

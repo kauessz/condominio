@@ -1,5 +1,8 @@
 package com.example.condo.service;
 
+import com.example.condo.dto.parking.ParkingAssignmentRequest;
+import com.example.condo.dto.parking.ParkingAssignmentResponse;
+import com.example.condo.dto.parking.ParkingDrawRegistrationResponse;
 import com.example.condo.entity.*;
 import com.example.condo.exception.BusinessException;
 import com.example.condo.exception.ResourceNotFoundException;
@@ -27,6 +30,8 @@ public class ParkingService {
     private final ParkingDrawRepository drawRepo;
     private final ParkingDrawRegistrationRepository regRepo;
     private final ParkingSpotAssignmentRepository assignRepo;
+    private final UnitRepository unitRepo;
+    private final ResidentRepository residentRepo;
     private final AuditService auditService;
 
     public ParkingService(CondominiumRepository condominiumRepo,
@@ -34,12 +39,16 @@ public class ParkingService {
                            ParkingDrawRepository drawRepo,
                            ParkingDrawRegistrationRepository regRepo,
                            ParkingSpotAssignmentRepository assignRepo,
+                           UnitRepository unitRepo,
+                           ResidentRepository residentRepo,
                            AuditService auditService) {
         this.condominiumRepo = condominiumRepo;
         this.spotRepo = spotRepo;
         this.drawRepo = drawRepo;
         this.regRepo = regRepo;
         this.assignRepo = assignRepo;
+        this.unitRepo = unitRepo;
+        this.residentRepo = residentRepo;
         this.auditService = auditService;
     }
 
@@ -170,6 +179,10 @@ public class ParkingService {
         reg.setTenantId(TenantContext.get());
         reg.setCondominiumId(draw.getCondominiumId());
         reg.setUnitId(unitId);
+        Resident currentResident = residentRepo.findByTenantIdAndUserId(TenantContext.get(), UserContext.userId()).orElse(null);
+        if (currentResident != null) {
+            reg.setResidentId(currentResident.getId());
+        }
         reg.setRegisteredAt(Instant.now());
         reg = regRepo.save(reg);
         auditService.log("REGISTER", "ParkingDrawRegistration", reg.getId(), draw.getCondominiumId(), null, reg);
@@ -189,9 +202,26 @@ public class ParkingService {
         regRepo.delete(reg);
     }
 
-    public List<ParkingDrawRegistration> getRegistrations(Long drawId) {
-        getDraw(drawId);
-        return regRepo.findByDrawId(drawId);
+    public List<ParkingDrawRegistrationResponse> getRegistrations(Long drawId) {
+        ParkingDraw draw = getDraw(drawId);
+        String tenant = TenantContext.get();
+        List<ParkingDrawRegistration> registrations = regRepo.findByDrawId(drawId);
+        Map<Long, Unit> unitsById = loadUnitsById(tenant, registrations.stream().map(ParkingDrawRegistration::getUnitId).toList());
+        Map<Long, Resident> residentsByUnitId = loadResidentsByUnitId(tenant, registrations.stream().map(ParkingDrawRegistration::getUnitId).toList());
+        Set<Long> unitsWithActiveAssignment = loadUnitsWithActiveAssignment(tenant, draw.getCondominiumId());
+        return registrations.stream()
+            .map(registration -> new ParkingDrawRegistrationResponse(
+                registration.getId(),
+                registration.getDrawId(),
+                registration.getCondominiumId(),
+                registration.getUnitId(),
+                buildUnitLabel(unitsById.get(registration.getUnitId()), registration.getUnitId()),
+                registration.getResidentId(),
+                resolveResidentName(registration, residentsByUnitId),
+                registration.getRegisteredAt(),
+                unitsWithActiveAssignment.contains(registration.getUnitId())
+            ))
+            .toList();
     }
 
     @Transactional
@@ -212,7 +242,10 @@ public class ParkingService {
             throw new BusinessException("Nenhuma inscrição para sortear");
         }
 
-        List<ParkingSpot> availableSpots = spotRepo.findAllActive(tenant, condoId);
+        List<ParkingSpot> availableSpots = spotRepo.findAllActive(tenant, condoId).stream()
+            .filter(spot -> !assignRepo.existsActiveConflictForSpot(
+                tenant, condoId, spot.getId(), draw.getValidFrom(), draw.getValidUntil(), null))
+            .toList();
         if (availableSpots.isEmpty()) {
             throw new BusinessException("Nenhuma vaga disponível para o sorteio");
         }
@@ -225,7 +258,13 @@ public class ParkingService {
         assignRepo.saveAll(existing);
 
         // Embaralhar inscrições com SecureRandom
-        List<ParkingDrawRegistration> shuffled = new ArrayList<>(registrations);
+        List<ParkingDrawRegistration> shuffled = registrations.stream()
+            .filter(registration -> !assignRepo.existsActiveConflictForUnit(
+                tenant, condoId, registration.getUnitId(), draw.getValidFrom(), draw.getValidUntil(), null))
+            .collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        if (shuffled.isEmpty()) {
+            throw new BusinessException("Todas as unidades inscritas já possuem atribuição ativa no período informado.");
+        }
         Collections.shuffle(shuffled, new SecureRandom());
 
         int spotsCount = Math.min(shuffled.size(), availableSpots.size());
@@ -269,14 +308,78 @@ public class ParkingService {
         return assignRepo.findActiveAssignmentForUnit(tenant, condoId, unitId, LocalDate.now());
     }
 
-    public List<ParkingSpotAssignment> getAllAssignments(Long condoIdParam) {
+    public List<ParkingAssignmentResponse> getAllAssignments(Long condoIdParam) {
         String tenant = TenantContext.get();
         Long condoId = UserContext.resolveCondominiumId(condoIdParam);
+        List<ParkingSpotAssignment> assignments;
         if (UserContext.isSuperuser() && condoId == null) {
-            return assignRepo.findAllActiveByTenant(tenant);
+            assignments = assignRepo.findAllActiveByTenant(tenant);
+        } else {
+            if (condoId == null) return List.of();
+            assignments = assignRepo.findAllActiveForCondo(tenant, condoId);
         }
-        if (condoId == null) return List.of();
-        return assignRepo.findAllActiveForCondo(tenant, condoId);
+        return toAssignmentResponses(tenant, assignments);
+    }
+
+    @Transactional
+    public ParkingAssignmentResponse createManualAssignment(ParkingAssignmentRequest request) {
+        String tenant = TenantContext.get();
+        Long condoId = UserContext.resolveCondominiumId(request.condominiumId());
+        validateManualAssignmentPayload(tenant, condoId, request.spotId(), request.unitId(), request.validFrom(), request.validUntil(), null);
+
+        ParkingSpotAssignment assignment = new ParkingSpotAssignment();
+        assignment.setTenantId(tenant);
+        assignment.setCondominiumId(condoId);
+        assignment.setSpotId(request.spotId());
+        assignment.setUnitId(request.unitId());
+        assignment.setDrawId(null);
+        assignment.setValidFrom(request.validFrom());
+        assignment.setValidUntil(request.validUntil());
+        assignment.setStatus(ParkingSpotAssignment.Status.ACTIVE);
+        assignment.setCreatedAt(Instant.now());
+        assignment = assignRepo.save(assignment);
+        ParkingAssignmentResponse response = toAssignmentResponses(tenant, List.of(assignment)).stream().findFirst()
+            .orElseThrow(() -> new BusinessException("Falha ao montar a atribuição criada."));
+        auditService.log("CREATE", "ParkingSpotAssignment", assignment.getId(), assignment.getCondominiumId(), null, response);
+        return response;
+    }
+
+    @Transactional
+    public ParkingAssignmentResponse updateAssignment(Long id, ParkingAssignmentRequest request) {
+        String tenant = TenantContext.get();
+        ParkingSpotAssignment assignment = assignRepo.findByTenantIdAndId(tenant, id)
+            .orElseThrow(() -> new ResourceNotFoundException("Atribuição", "id", id));
+        enforceSameCondominium(assignment.getCondominiumId());
+        ParkingAssignmentResponse before = toAssignmentResponses(tenant, List.of(assignment)).stream().findFirst().orElse(null);
+
+        Long condoId = assignment.getCondominiumId();
+        Long spotId = request.spotId() != null ? request.spotId() : assignment.getSpotId();
+        Long unitId = request.unitId() != null ? request.unitId() : assignment.getUnitId();
+        LocalDate validFrom = request.validFrom() != null ? request.validFrom() : assignment.getValidFrom();
+        LocalDate validUntil = request.validUntil() != null ? request.validUntil() : assignment.getValidUntil();
+
+        validateManualAssignmentPayload(tenant, condoId, spotId, unitId, validFrom, validUntil, assignment.getId());
+        assignment.setSpotId(spotId);
+        assignment.setUnitId(unitId);
+        assignment.setValidFrom(validFrom);
+        assignment.setValidUntil(validUntil);
+        assignment = assignRepo.save(assignment);
+        ParkingAssignmentResponse after = toAssignmentResponses(tenant, List.of(assignment)).stream().findFirst()
+            .orElseThrow(() -> new BusinessException("Falha ao montar a atribuição atualizada."));
+        auditService.log("UPDATE", "ParkingSpotAssignment", assignment.getId(), assignment.getCondominiumId(), before, after);
+        return after;
+    }
+
+    @Transactional
+    public void cancelAssignment(Long id) {
+        String tenant = TenantContext.get();
+        ParkingSpotAssignment assignment = assignRepo.findByTenantIdAndId(tenant, id)
+            .orElseThrow(() -> new ResourceNotFoundException("Atribuição", "id", id));
+        enforceSameCondominium(assignment.getCondominiumId());
+        ParkingAssignmentResponse before = toAssignmentResponses(tenant, List.of(assignment)).stream().findFirst().orElse(null);
+        assignment.setStatus(ParkingSpotAssignment.Status.CANCELLED);
+        assignRepo.save(assignment);
+        auditService.log("CANCEL", "ParkingSpotAssignment", assignment.getId(), assignment.getCondominiumId(), before, null);
     }
 
     private void enforceSameCondominium(Long condoId) {
@@ -303,6 +406,155 @@ public class ParkingService {
         if (!condominium.isAllowResidentRegistration()) {
             throw new BusinessException("Este condomínio não permite inscrições de moradores em sorteios.");
         }
+    }
+
+    private void ensureManualAssignmentsAllowed(String tenantId, Long condoId) {
+        Condominium condominium = condominiumRepo.findByTenantIdAndId(tenantId, condoId)
+            .orElseThrow(() -> new ResourceNotFoundException("Condomínio", "id", condoId));
+        if (!condominium.isAllowManualAssignments()) {
+            throw new BusinessException("Este condomínio não permite atribuições manuais de vagas.");
+        }
+    }
+
+    private void validateManualAssignmentPayload(String tenant,
+                                                 Long condoId,
+                                                 Long spotId,
+                                                 Long unitId,
+                                                 LocalDate validFrom,
+                                                 LocalDate validUntil,
+                                                 Long ignoreAssignmentId) {
+        if (condoId == null) {
+            throw new BusinessException("condominiumId é obrigatório para atribuição manual.");
+        }
+        ensureManualAssignmentsAllowed(tenant, condoId);
+        if (spotId == null || unitId == null || validFrom == null || validUntil == null) {
+            throw new BusinessException("Informe vaga, unidade e período da atribuição.");
+        }
+        if (validUntil.isBefore(validFrom)) {
+            throw new BusinessException("A data final da atribuição deve ser maior ou igual à inicial.");
+        }
+
+        ParkingSpot spot = spotRepo.findByTenantIdAndId(tenant, spotId)
+            .orElseThrow(() -> new ResourceNotFoundException("Vaga", "id", spotId));
+        if (!spot.isActive()) {
+            throw new BusinessException("A vaga selecionada está inativa.");
+        }
+        if (!Objects.equals(spot.getCondominiumId(), condoId)) {
+            throw new BusinessException("A vaga selecionada não pertence ao condomínio informado.");
+        }
+        if (!unitRepo.existsByTenantIdAndIdAndCondominiumId(tenant, unitId, condoId)) {
+            throw new BusinessException("A unidade selecionada não pertence ao condomínio informado.");
+        }
+        if (assignRepo.existsActiveConflictForSpot(tenant, condoId, spotId, validFrom, validUntil, ignoreAssignmentId)) {
+            throw new BusinessException("Já existe uma atribuição ativa para esta vaga no período informado.");
+        }
+        if (assignRepo.existsActiveConflictForUnit(tenant, condoId, unitId, validFrom, validUntil, ignoreAssignmentId)) {
+            throw new BusinessException("A unidade já possui uma vaga ativa no período informado.");
+        }
+    }
+
+    private List<ParkingAssignmentResponse> toAssignmentResponses(String tenant, List<ParkingSpotAssignment> assignments) {
+        if (assignments.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Unit> unitsById = loadUnitsById(tenant, assignments.stream().map(ParkingSpotAssignment::getUnitId).toList());
+        Map<Long, Resident> residentsByUnitId = loadResidentsByUnitId(tenant, assignments.stream().map(ParkingSpotAssignment::getUnitId).toList());
+        Map<Long, ParkingSpot> spotsById = loadSpotsById(tenant, assignments.stream().map(ParkingSpotAssignment::getSpotId).toList());
+        Map<Long, ParkingDraw> drawsById = loadDrawsById(tenant, assignments.stream().map(ParkingSpotAssignment::getDrawId).filter(Objects::nonNull).toList());
+
+        return assignments.stream()
+            .map(assignment -> {
+                Unit unit = unitsById.get(assignment.getUnitId());
+                Resident resident = residentsByUnitId.get(assignment.getUnitId());
+                ParkingSpot spot = spotsById.get(assignment.getSpotId());
+                ParkingDraw draw = assignment.getDrawId() != null ? drawsById.get(assignment.getDrawId()) : null;
+                return new ParkingAssignmentResponse(
+                    assignment.getId(),
+                    assignment.getCondominiumId(),
+                    assignment.getSpotId(),
+                    spot != null ? spot.getCode() : "#" + assignment.getSpotId(),
+                    spot != null ? spot.getDescription() : null,
+                    assignment.getUnitId(),
+                    buildUnitLabel(unit, assignment.getUnitId()),
+                    resident != null ? resident.getName() : null,
+                    assignment.getDrawId(),
+                    draw != null ? draw.getName() : null,
+                    assignment.getValidFrom(),
+                    assignment.getValidUntil(),
+                    assignment.getStatus().name()
+                );
+            })
+            .toList();
+    }
+
+    private Map<Long, Unit> loadUnitsById(String tenant, List<Long> unitIds) {
+        if (unitIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Unit> result = new HashMap<>();
+        unitRepo.findByTenantIdAndIdIn(tenant, unitIds).forEach(unit -> result.put(unit.getId(), unit));
+        return result;
+    }
+
+    private Map<Long, Resident> loadResidentsByUnitId(String tenant, List<Long> unitIds) {
+        if (unitIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, Resident> result = new HashMap<>();
+        residentRepo.findByTenantIdAndUnitIdIn(tenant, unitIds).forEach(resident ->
+            result.putIfAbsent(resident.getUnitId(), resident)
+        );
+        return result;
+    }
+
+    private Map<Long, ParkingSpot> loadSpotsById(String tenant, List<Long> spotIds) {
+        if (spotIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, ParkingSpot> result = new HashMap<>();
+        spotRepo.findAllById(spotIds).stream()
+            .filter(spot -> tenant.equals(spot.getTenantId()))
+            .forEach(spot -> result.put(spot.getId(), spot));
+        return result;
+    }
+
+    private Map<Long, ParkingDraw> loadDrawsById(String tenant, List<Long> drawIds) {
+        if (drawIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, ParkingDraw> result = new HashMap<>();
+        drawRepo.findAllById(drawIds).stream()
+            .filter(draw -> tenant.equals(draw.getTenantId()))
+            .forEach(draw -> result.put(draw.getId(), draw));
+        return result;
+    }
+
+    private Set<Long> loadUnitsWithActiveAssignment(String tenant, Long condominiumId) {
+        LocalDate today = LocalDate.now();
+        return assignRepo.findByTenantIdAndCondominiumIdAndStatus(tenant, condominiumId, ParkingSpotAssignment.Status.ACTIVE).stream()
+            .filter(assignment -> !assignment.getValidUntil().isBefore(today))
+            .map(ParkingSpotAssignment::getUnitId)
+            .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private String buildUnitLabel(Unit unit, Long fallbackUnitId) {
+        if (unit == null) {
+            return "Unidade #" + fallbackUnitId;
+        }
+        return unit.getBlock() != null && !unit.getBlock().isBlank()
+            ? "Unidade " + unit.getNumber() + " • Bloco " + unit.getBlock()
+            : "Unidade " + unit.getNumber();
+    }
+
+    private String resolveResidentName(ParkingDrawRegistration registration, Map<Long, Resident> residentsByUnitId) {
+        Resident resident = residentsByUnitId.get(registration.getUnitId());
+        if (resident == null) {
+            return null;
+        }
+        if (registration.getResidentId() == null || Objects.equals(registration.getResidentId(), resident.getId())) {
+            return resident.getName();
+        }
+        return resident.getName();
     }
 
     private ParkingSpot copySpot(ParkingSpot source) {

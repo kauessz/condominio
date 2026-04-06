@@ -14,6 +14,7 @@ type Condo = {
 type CondoWithCounters = Condo & {
   unitCount?: number;
   residentCount?: number;
+  visitorCount?: number;
   pendingVisitors?: number;
 };
 
@@ -81,7 +82,7 @@ function CondoCard({
           {[
             { label: "Unidades",  value: c.unitCount },
             { label: "Moradores", value: c.residentCount },
-            { label: "Visitas",   value: c.pendingVisitors },
+            { label: "Visitas",   value: c.visitorCount },
           ].map(({ label, value }) => (
             <div key={label} className="bg-slate-50 rounded-xl p-3 text-center">
               <p className="text-xl font-bold text-slate-900" style={{ fontFamily: "var(--font-display)" }}>
@@ -184,10 +185,16 @@ export default function Dashboard() {
 
   async function fetchCounters(c: Condo): Promise<CondoWithCounters> {
     try {
-      const r = await api.get<{ units: number; residents: number; pendingVisitors: number }>(
+      const r = await api.get<{ units: number; residents: number; visitors: number; pendingVisitors: number }>(
         `/condominiums/${c.id}/counters`
       );
-      return { ...c, unitCount: r.data.units, residentCount: r.data.residents, pendingVisitors: r.data.pendingVisitors };
+      return {
+        ...c,
+        unitCount: r.data.units,
+        residentCount: r.data.residents,
+        visitorCount: r.data.visitors,
+        pendingVisitors: r.data.pendingVisitors,
+      };
     } catch {
       return { ...c };
     }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import api from "../lib/api";
 import { getUser } from "../lib/auth";
+import { useSuperadminCondominiumFilter } from "../hooks/useSuperadminCondominiumFilter";
 
 type SortBy = "checkInAt" | "checkOutAt" | "name";
 type SortDir = "asc" | "desc";
@@ -41,6 +42,7 @@ type PageAny = {
 };
 
 type UnitLite = { id: number; number: string | number; block?: string | null };
+type Condo = { id: number; name: string };
 
 /* ====================== helpers ====================== */
 
@@ -141,14 +143,18 @@ export default function Visitors() {
   const isMorador  = currentUser?.role === "MORADOR";
   const isSindico  = currentUser?.role === "SINDICO";
   const isAdmin    = currentUser?.role === "ADMIN";
-  const isSuperuser = currentUser?.role === "SUPERUSER";
+  const { selectedCondominiumId, setSelectedCondominiumId, isSuperuser } = useSuperadminCondominiumFilter(currentUser);
   const isManager  = isSuperuser || isSindico || isAdmin;
   const canEdit    = isManager || isPortaria;
   const canApprove = isSuperuser || isAdmin || isSindico || isMorador;
   const canOperateAccess = isSuperuser || isAdmin || isSindico || isPortaria;
+  const superuserUrlCondominiumId = sp.get("condoId") || sp.get("condominiumId") || "";
+  const effectiveSuperuserCondominiumId = selectedCondominiumId || superuserUrlCondominiumId;
 
   // condoId: relevante apenas para SUPERUSER; outros usam JWT no backend
-  const condoId = Number(sp.get("condoId") || sp.get("condominiumId") || "0");
+  const condoId = isSuperuser
+    ? Number(effectiveSuperuserCondominiumId || "0")
+    : Number(sp.get("condoId") || sp.get("condominiumId") || currentUser?.condominiumId || "0");
 
   const [q, setQ] = useState(sp.get("q") ?? "");
   const [from, setFrom] = useState(sp.get("from") ?? "");
@@ -166,12 +172,16 @@ export default function Visitors() {
 
   const [units, setUnits] = useState<UnitLite[]>([]);
   const [loadingUnits, setLoadingUnits] = useState(false);
+  const [condos, setCondos] = useState<Condo[]>([]);
 
   const pages = useMemo(() => Math.max(1, Math.ceil(total / Math.max(1, size))), [total, size]);
 
   function sync() {
     const n = new URLSearchParams(sp);
     if (condoId) n.set("condoId", String(condoId));
+    else n.delete("condoId");
+    if (condoId) n.set("condominiumId", String(condoId));
+    else n.delete("condominiumId");
     n.set("q", q || "");
     if (from) n.set("from", from); else n.delete("from");
     if (to) n.set("to", to); else n.delete("to");
@@ -184,9 +194,38 @@ export default function Visitors() {
     setSp(n, { replace: true });
   }
 
+  useEffect(() => {
+    if (!isSuperuser) return;
+    const queryCondoId = sp.get("condoId") || sp.get("condominiumId") || "";
+    if (queryCondoId && queryCondoId !== selectedCondominiumId) {
+      setSelectedCondominiumId(queryCondoId);
+    }
+  }, [isSuperuser, selectedCondominiumId, setSelectedCondominiumId, sp]);
+
+  useEffect(() => {
+    if (!isSuperuser) return;
+    api.get("/condominiums", { params: { pageSize: 100 } })
+      .then((r) => {
+        const raw = r.data;
+        const list: Condo[] = Array.isArray(raw.content) ? raw.content : Array.isArray(raw.items) ? raw.items : Array.isArray(raw) ? raw : [];
+        setCondos(list);
+      })
+      .catch(() => setCondos([]));
+  }, [isSuperuser]);
+
+  useEffect(() => {
+    if (!isSuperuser || !superuserUrlCondominiumId || selectedCondominiumId === superuserUrlCondominiumId) {
+      return;
+    }
+    setSelectedCondominiumId(superuserUrlCondominiumId);
+  }, [isSuperuser, selectedCondominiumId, setSelectedCondominiumId, superuserUrlCondominiumId]);
+
   async function load() {
-    // SUPERUSER precisa de condoId; outros roles usam JWT no backend
-    if (isSuperuser && !condoId) return;
+    if (isSuperuser && !condoId) {
+      setRows([]);
+      setTotal(0);
+      return;
+    }
     setLoading(true);
     try {
       const params: Record<string, any> = {
@@ -223,8 +262,10 @@ export default function Visitors() {
   }
 
   async function loadUnits() {
-    // SUPERUSER precisa de condoId; outros roles usam JWT no backend
-    if (isSuperuser && !condoId) return;
+    if (isSuperuser && !condoId) {
+      setUnits([]);
+      return;
+    }
     setLoadingUnits(true);
     try {
       const params: Record<string, any> = {
@@ -280,6 +321,10 @@ export default function Visitors() {
   });
 
   function openModal() {
+    if (isSuperuser && !condoId) {
+      window.alert("Selecione um condomínio antes de registrar um visitante.");
+      return;
+    }
     setEditingId(null);
     setForm({
       type: "VISITOR",
@@ -430,6 +475,22 @@ export default function Visitors() {
         </button>
       </div>
 
+      {isSuperuser && (
+        <div className="mb-4 max-w-sm">
+          <label className="mb-1 block text-sm text-slate-600">Condomínio</label>
+          <select
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-slate-400"
+            value={selectedCondominiumId}
+            onChange={(e) => setSelectedCondominiumId(e.target.value)}
+          >
+            <option value="">Selecione um condomínio…</option>
+            {condos.map((condo) => (
+              <option key={condo.id} value={condo.id}>{condo.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Alerta portaria: visitantes pendentes */}
       {isPortaria && pendingCount > 0 && (
         <div className="mb-4 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
@@ -537,7 +598,7 @@ export default function Visitors() {
         <div className="rounded-xl border border-slate-200 bg-white/60 p-6 text-slate-500 shadow-sm">Carregando…</div>
       ) : rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white/50 p-6 text-slate-600">
-          Nenhum visitante encontrado.
+          {isSuperuser && !condoId ? "Selecione um condomínio para visualizar e cadastrar visitantes." : "Nenhum visitante encontrado."}
         </div>
       ) : (
         <div className="divide-y rounded-xl border border-slate-200 bg-white/70 shadow-sm">

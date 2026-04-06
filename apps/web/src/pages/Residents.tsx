@@ -10,6 +10,7 @@ import {
 } from "../lib/auth";
 import { useToast } from "../components/Toast";
 import Modal from "../components/Modal";
+import { useSuperadminCondominiumFilter } from "../hooks/useSuperadminCondominiumFilter";
 
 type SortBy = "name" | "email";
 type SortDir = "asc" | "desc";
@@ -19,6 +20,9 @@ type Resident = {
   name: string;
   email: string;
   phone?: string | null;
+  userId?: number | null;
+  hasAccount?: boolean;
+  accessRole?: string | null;
   unitId?: number | null;
   // Campos retornados pelo backend (ResidentResponse)
   unitCode?: string | null;
@@ -30,6 +34,7 @@ type Resident = {
 };
 
 type UnitOpt = { id: number; label: string };
+type Condo = { id: number; name: string };
 
 // ---------- helper de normalização ----------
 function normalizePage<T = any>(raw: any): {
@@ -95,14 +100,16 @@ export default function Residents() {
   const [sp, setSp] = useSearchParams();
 
   const currentUser = getUser();
-  const isSuperuser = currentUser?.role === "SUPERUSER";
+  const { selectedCondominiumId, setSelectedCondominiumId, isSuperuser } = useSuperadminCondominiumFilter(currentUser);
   const isMorador = currentUser?.role === "MORADOR";
   const canCreate = canCreateResidents();
   const canEdit = canEditResidents();
   const canDelete = canDeleteResidents();
 
   // ===== filtros URL =====
-  const condoId = Number(sp.get("condoId") || sp.get("condominiumId") || "0");
+  const condoId = isSuperuser
+    ? Number(selectedCondominiumId || "0")
+    : Number(sp.get("condoId") || sp.get("condominiumId") || currentUser?.condominiumId || "0");
   const [q, setQ] = useState(sp.get("q") ?? "");
   const [pageIndex, setPageIndex] = useState<number>(Number(sp.get("page") ?? 0));
   const [pageSize, setPageSize] = useState<number>(Number(sp.get("pageSize") ?? 8));
@@ -116,6 +123,7 @@ export default function Residents() {
 
   // unidades para o select
   const [unitOpts, setUnitOpts] = useState<UnitOpt[]>([]);
+  const [condos, setCondos] = useState<Condo[]>([]);
 
   const pageCount = useMemo(
     () => Math.max(1, Math.ceil(total / pageSize)),
@@ -136,9 +144,24 @@ export default function Residents() {
     setSp(nextSp, { replace: true });
   }
 
+  useEffect(() => {
+    if (!isSuperuser) return;
+    api.get("/condominiums", { params: { pageSize: 100 } })
+      .then((resp) => {
+        const raw = resp.data;
+        const items: Condo[] = Array.isArray(raw.content)
+          ? raw.content
+          : Array.isArray(raw.items)
+            ? raw.items
+            : Array.isArray(raw)
+              ? raw
+              : [];
+        setCondos(items);
+      })
+      .catch(() => setCondos([]));
+  }, [isSuperuser]);
+
   async function loadUnitsOptions() {
-    // SUPERUSER precisa de condoId; outros roles usam JWT no backend
-    if (isSuperuser && !condoId) return;
     try {
       const params: Record<string, any> = {
         page: 0, pageSize: 1000, sortBy: "number", sortDir: "asc",
@@ -160,8 +183,6 @@ export default function Residents() {
   }
 
   async function load() {
-    // SUPERUSER precisa de condoId na URL; outros roles usam JWT no backend
-    if (isSuperuser && !condoId) return;
     try {
       setLoading(true);
       const params: Record<string, any> = { q, page: pageIndex, pageSize, sortBy, sortDir };
@@ -203,13 +224,17 @@ export default function Residents() {
   // ===== modal criar/editar =====
   const [openModal, setOpenModal] = useState(false);
   const [editing, setEditing] = useState<Resident | null>(null);
-  const [form, setForm] = useState<{ name: string; email: string; phone: string; unitId: string }>(
-    { name: "", email: "", phone: "", unitId: "" }
+  const [form, setForm] = useState<{ name: string; email: string; phone: string; unitId: string; hasAccount: boolean; accessRole: string; password: string }>(
+    { name: "", email: "", phone: "", unitId: "", hasAccount: false, accessRole: "MORADOR", password: "" }
   );
 
   function openCreate() {
+    if (isSuperuser && !condoId) {
+      toast.show({ type: "error", msg: "Selecione um condomínio antes de criar um morador." });
+      return;
+    }
     setEditing(null);
-    setForm({ name: "", email: "", phone: "", unitId: "" });
+    setForm({ name: "", email: "", phone: "", unitId: "", hasAccount: false, accessRole: "MORADOR", password: "" });
     setOpenModal(true);
   }
 
@@ -221,6 +246,9 @@ export default function Residents() {
       email: r.email ?? "",
       phone: r.phone ?? "",
       unitId: selectedUnitId ? String(selectedUnitId) : "",
+      hasAccount: Boolean(r.hasAccount),
+      accessRole: r.accessRole ?? "MORADOR",
+      password: "",
     });
     setOpenModal(true);
   }
@@ -239,6 +267,10 @@ export default function Residents() {
         toast.show({ type: "error", msg: "Selecione uma unidade para o morador" });
         return;
       }
+      if (isSuperuser && !condoId) {
+        toast.show({ type: "error", msg: "Selecione um condomínio antes de salvar." });
+        return;
+      }
 
       const unitId = form.unitId ? Number(form.unitId) : null;
 
@@ -248,6 +280,9 @@ export default function Residents() {
           email: form.email.trim(),
           phone: form.phone.trim() || null,
           unitId,
+          hasAccount: form.hasAccount,
+          accessRole: form.hasAccount ? form.accessRole : undefined,
+          password: form.password.trim() || undefined,
         });
         toast.show({ type: "success", msg: "Morador atualizado" });
       } else {
@@ -258,6 +293,9 @@ export default function Residents() {
           name: form.name.trim(),
           email: form.email.trim(),
           phone: form.phone.trim() || null,
+          createAccount: form.hasAccount,
+          accessRole: form.hasAccount ? form.accessRole : undefined,
+          password: form.password.trim() || undefined,
         });
         toast.show({ type: "success", msg: "Morador criado" });
         setPageIndex(0);
@@ -311,6 +349,22 @@ export default function Residents() {
           </button>
         )}
       </div>
+
+      {isSuperuser && (
+        <div className="mb-4 max-w-sm">
+          <label className="block text-sm text-slate-600 mb-1">Condomínio</label>
+          <select
+            value={selectedCondominiumId}
+            onChange={(e) => setSelectedCondominiumId(e.target.value)}
+            className="border rounded-lg px-3 py-2 w-full"
+          >
+            <option value="">Selecione um condomínio…</option>
+            {condos.map((condo) => (
+              <option key={condo.id} value={condo.id}>{condo.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* filtros */}
       <div className="flex flex-wrap gap-3 items-center mb-4">
@@ -400,7 +454,7 @@ export default function Residents() {
                   </span>
                 </div>
                 <div className="text-slate-500 text-xs mt-3">
-                  Perfil vinculado ao contexto operacional da unidade
+                  {r.hasAccount ? `Conta vinculada • ${r.accessRole ?? "MORADOR"}` : "Registro operacional sem conta de acesso"}
                 </div>
 
                 {(canEdit || canDelete) && (
@@ -422,7 +476,7 @@ export default function Residents() {
           })}
           {items.length === 0 && (
             <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-slate-500 text-sm">
-              Nenhum morador encontrado.
+              {isSuperuser && !condoId ? "Selecione um condomínio para visualizar e cadastrar moradores." : "Nenhum morador encontrado."}
             </div>
           )}
         </div>
@@ -510,6 +564,43 @@ export default function Residents() {
               ))}
             </select>
           </div>
+
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={form.hasAccount}
+              onChange={(e) => setForm((f) => ({ ...f, hasAccount: e.target.checked, password: "" }))}
+            />
+            Criar ou manter conta de acesso
+          </label>
+
+          {form.hasAccount && (
+            <>
+              <div>
+                <label className="block text-sm text-slate-600">Role de acesso</label>
+                <select
+                  value={form.accessRole}
+                  onChange={(e) => setForm((f) => ({ ...f, accessRole: e.target.value }))}
+                  className="border rounded-lg px-3 py-2 w-full"
+                >
+                  <option value="MORADOR">Morador</option>
+                  <option value="SINDICO">Síndico</option>
+                  <option value="ZELADOR">Zelador</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm text-slate-600">{editing ? "Nova senha provisória" : "Senha provisória *"}</label>
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                  className="border rounded-lg px-3 py-2 w-full"
+                  placeholder={editing ? "Preencha apenas para redefinir senha" : "Mínimo de 6 caracteres"}
+                />
+              </div>
+            </>
+          )}
 
           <div className="mt-4 flex justify-end gap-2">
             <button

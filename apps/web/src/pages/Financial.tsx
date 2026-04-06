@@ -351,6 +351,12 @@ export default function FinancialPage() {
     }
   }
 
+  function openPaymentModal(invoice: Invoice) {
+    setSelectedInvoice(invoice);
+    setPayForm({ paidAmount: invoice.amount.toString(), paymentMethod: "PIX", notes: "" });
+    setShowPayModal(true);
+  }
+
   async function handleOpenDetail(invoice: Invoice) {
     try {
       const res = await api.get(`/api/financial/invoices/${invoice.id}`);
@@ -490,9 +496,17 @@ export default function FinancialPage() {
                     Nenhuma cobrança encontrada.
                   </div>
                 ) : invoices.map((invoice) => (
-                  <button
+                  <article
                     key={invoice.id}
                     onClick={() => handleOpenDetail(invoice)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleOpenDetail(invoice);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                     className="w-full text-left bg-white rounded-xl border border-slate-100 shadow-sm p-4 hover:shadow-md transition-shadow"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -524,9 +538,10 @@ export default function FinancialPage() {
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setSelectedInvoice(invoice);
-                              setPayForm({ paidAmount: invoice.amount.toString(), paymentMethod: "PIX", notes: "" });
-                              setShowPayModal(true);
+                              openPaymentModal(invoice);
+                            }}
+                            onKeyDown={(event) => {
+                              event.stopPropagation();
                             }}
                             className="text-xs text-indigo-600 hover:text-indigo-700 font-medium mt-0.5"
                           >
@@ -535,7 +550,7 @@ export default function FinancialPage() {
                         )}
                       </div>
                     </div>
-                  </button>
+                  </article>
                 ))}
               </div>
             </>

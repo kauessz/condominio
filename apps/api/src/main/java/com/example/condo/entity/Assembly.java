@@ -39,6 +39,12 @@ public class Assembly {
     @Column(name = "closed_at")
     private Instant closedAt;
 
+    @Column(name = "validated_at")
+    private Instant validatedAt;
+
+    @Column(name = "validated_by")
+    private Long validatedBy;
+
     @Column(name = "created_by")
     private Long createdBy;
 
@@ -75,6 +81,12 @@ public class Assembly {
 
     public Instant getClosedAt() { return closedAt; }
     public void setClosedAt(Instant closedAt) { this.closedAt = closedAt; }
+
+    public Instant getValidatedAt() { return validatedAt; }
+    public void setValidatedAt(Instant validatedAt) { this.validatedAt = validatedAt; }
+
+    public Long getValidatedBy() { return validatedBy; }
+    public void setValidatedBy(Long validatedBy) { this.validatedBy = validatedBy; }
 
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }

@@ -76,6 +76,15 @@ public interface VisitorRepository extends JpaRepository<Visitor, Long> {
          select count(v) from Visitor v
           where v.tenantId = :t
             and v.condominiumId = :c
+            and v.deletedAt is null
+         """)
+  long countByCondo(@Param("t") String tenantId,
+                    @Param("c") Long condoId);
+
+  @Query("""
+         select count(v) from Visitor v
+          where v.tenantId = :t
+            and v.condominiumId = :c
             and v.type = com.example.condo.entity.Visitor$Type.DELIVERY
             and v.status = com.example.condo.entity.Visitor$Status.PENDING_APPROVAL
             and v.deletedAt is null

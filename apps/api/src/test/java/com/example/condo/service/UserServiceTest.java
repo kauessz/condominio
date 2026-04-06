@@ -4,6 +4,7 @@ import com.example.condo.dto.common.PageResponse;
 import com.example.condo.dto.user.UserResponse;
 import com.example.condo.entity.User;
 import com.example.condo.repo.CondominiumRepository;
+import com.example.condo.repo.ResidentRepository;
 import com.example.condo.repo.UnitRepository;
 import com.example.condo.repo.UserRepository;
 import com.example.condo.security.Role;
@@ -46,6 +47,9 @@ class UserServiceTest {
 
     @Mock
     private CondominiumRepository condominiumRepository;
+
+    @Mock
+    private ResidentRepository residentRepository;
 
     @Mock
     private UnitRepository unitRepository;
