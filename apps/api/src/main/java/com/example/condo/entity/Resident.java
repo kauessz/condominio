@@ -31,6 +31,10 @@ public class Resident {
   @Column(nullable = false)
   private String phone;
 
+  /** CPF do morador (somente dígitos, sem máscara). Opcional. */
+  @Column(length = 14)
+  private String cpf;
+
   // getters/setters
   public Long getId() { return id; }
   public void setId(Long id) { this.id = id; }
@@ -55,4 +59,7 @@ public class Resident {
 
   public String getPhone() { return phone; }
   public void setPhone(String phone) { this.phone = phone; }
+
+  public String getCpf() { return cpf; }
+  public void setCpf(String cpf) { this.cpf = cpf; }
 }

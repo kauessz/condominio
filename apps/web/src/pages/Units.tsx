@@ -121,7 +121,13 @@ export default function Units() {
   async function loadCountsFallback() {
     try {
       const params: Record<string, any> = {
-        q: "", page: 0, pageSize: 1000, sortBy: "name", sortDir: "asc",
+        q: "",
+        page: 0,
+        size: 1000,
+        pageSize: 1000,
+        sort: "name,asc",
+        sortBy: "name",
+        sortDir: "asc",
       };
       if (isSuperuser && condoId) {
         params.condoId = condoId;
@@ -144,7 +150,15 @@ export default function Units() {
   async function load() {
     try {
       setLoading(true);
-      const params: Record<string, any> = { q, page, pageSize, sortBy, sortDir };
+      const params: Record<string, any> = {
+        q,
+        page,
+        size: pageSize,
+        pageSize,
+        sort: `${sortBy},${sortDir}`,
+        sortBy,
+        sortDir,
+      };
       if (isSuperuser && condoId) {
         params.condoId = condoId;
         params.condominiumId = condoId;

@@ -1,5 +1,7 @@
 package com.example.condo.service;
 
+import com.example.condo.audit.AuditAction;
+import com.example.condo.audit.AuditModule;
 import com.example.condo.entity.CommonArea;
 import com.example.condo.entity.Condominium;
 import com.example.condo.entity.Reservation;
@@ -21,7 +23,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @Transactional(readOnly = true)
@@ -214,7 +218,17 @@ public class ReservationService {
         } catch (DataIntegrityViolationException ex) {
             throw new BusinessException("Conflito de horário: já existe uma reserva neste período");
         }
-        auditService.log("CREATE", "Reservation", res.getId(), res.getCondominiumId(), null, res);
+        auditService.log(
+            AuditModule.RESERVATIONS,
+            AuditAction.CREATE_RESERVATION,
+            "Reservation",
+            res.getId(),
+            res.getCondominiumId(),
+            "Reserva criada para a área " + area.getName() + ".",
+            null,
+            res,
+            reservationDetails(res)
+        );
         return res;
     }
 
@@ -229,7 +243,17 @@ public class ReservationService {
         res.setApprovedAt(Instant.now());
         res.setApprovedBy(UserContext.userId());
         res = reservationRepo.save(res);
-        auditService.log("APPROVE", "Reservation", res.getId(), res.getCondominiumId(), before, res);
+        auditService.log(
+            AuditModule.RESERVATIONS,
+            AuditAction.APPROVE_RESERVATION,
+            "Reservation",
+            res.getId(),
+            res.getCondominiumId(),
+            "Reserva #" + res.getId() + " aprovada.",
+            before,
+            res,
+            reservationDetails(res)
+        );
         return res;
     }
 
@@ -243,7 +267,17 @@ public class ReservationService {
         res.setStatus(Reservation.Status.REJECTED);
         res.setRejectionReason(reason);
         res = reservationRepo.save(res);
-        auditService.log("REJECT", "Reservation", res.getId(), res.getCondominiumId(), before, res);
+        auditService.log(
+            AuditModule.RESERVATIONS,
+            AuditAction.REJECT_RESERVATION,
+            "Reservation",
+            res.getId(),
+            res.getCondominiumId(),
+            "Reserva #" + res.getId() + " rejeitada.",
+            before,
+            res,
+            reservationDetails(res)
+        );
         return res;
     }
 
@@ -265,8 +299,35 @@ public class ReservationService {
         res.setCancelledAt(Instant.now());
         res.setCancelledBy(UserContext.userId());
         res = reservationRepo.save(res);
-        auditService.log("CANCEL", "Reservation", res.getId(), res.getCondominiumId(), before, res);
+        auditService.log(
+            AuditModule.RESERVATIONS,
+            AuditAction.CANCEL_RESERVATION,
+            "Reservation",
+            res.getId(),
+            res.getCondominiumId(),
+            "Reserva #" + res.getId() + " cancelada.",
+            before,
+            res,
+            reservationDetails(res)
+        );
         return res;
+    }
+
+    private Map<String, Object> reservationDetails(Reservation reservation) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("reservationId", reservation.getId());
+        details.put("commonAreaId", reservation.getCommonAreaId());
+        details.put("commonAreaName", areaRepo.findByTenantIdAndId(TenantContext.get(), reservation.getCommonAreaId()).map(CommonArea::getName).orElse(null));
+        details.put("unitId", reservation.getUnitId());
+        details.put("unitLabel", unitRepo.findByTenantIdAndId(TenantContext.get(), reservation.getUnitId())
+            .map(unit -> unit.getBlock() != null && !unit.getBlock().isBlank()
+                ? "Unidade " + unit.getNumber() + " - Bloco " + unit.getBlock()
+                : "Unidade " + unit.getNumber())
+            .orElse(null));
+        details.put("status", reservation.getStatus().name());
+        details.put("startDatetime", reservation.getStartDatetime());
+        details.put("endDatetime", reservation.getEndDatetime());
+        return details;
     }
 
     // ── Helpers ───────────────────────────────────────────────────

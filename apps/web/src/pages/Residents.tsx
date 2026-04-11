@@ -20,6 +20,7 @@ type Resident = {
   name: string;
   email: string;
   phone?: string | null;
+  cpf?: string | null;
   userId?: number | null;
   hasAccount?: boolean;
   accessRole?: string | null;
@@ -164,7 +165,12 @@ export default function Residents() {
   async function loadUnitsOptions() {
     try {
       const params: Record<string, any> = {
-        page: 0, pageSize: 1000, sortBy: "number", sortDir: "asc",
+        page: 0,
+        size: 1000,
+        pageSize: 1000,
+        sort: "number,asc",
+        sortBy: "number",
+        sortDir: "asc",
       };
       if (isSuperuser && condoId) {
         params.condoId = condoId;
@@ -185,7 +191,15 @@ export default function Residents() {
   async function load() {
     try {
       setLoading(true);
-      const params: Record<string, any> = { q, page: pageIndex, pageSize, sortBy, sortDir };
+      const params: Record<string, any> = {
+        q,
+        page: pageIndex,
+        size: pageSize,
+        pageSize,
+        sort: `${sortBy},${sortDir}`,
+        sortBy,
+        sortDir,
+      };
       if (isSuperuser && condoId) {
         params.condoId = condoId;
         params.condominiumId = condoId;
@@ -224,8 +238,8 @@ export default function Residents() {
   // ===== modal criar/editar =====
   const [openModal, setOpenModal] = useState(false);
   const [editing, setEditing] = useState<Resident | null>(null);
-  const [form, setForm] = useState<{ name: string; email: string; phone: string; unitId: string; hasAccount: boolean; accessRole: string; password: string }>(
-    { name: "", email: "", phone: "", unitId: "", hasAccount: false, accessRole: "MORADOR", password: "" }
+  const [form, setForm] = useState<{ name: string; email: string; phone: string; cpf: string; unitId: string; hasAccount: boolean; accessRole: string; password: string }>(
+    { name: "", email: "", phone: "", cpf: "", unitId: "", hasAccount: false, accessRole: "MORADOR", password: "" }
   );
 
   function openCreate() {
@@ -234,7 +248,7 @@ export default function Residents() {
       return;
     }
     setEditing(null);
-    setForm({ name: "", email: "", phone: "", unitId: "", hasAccount: false, accessRole: "MORADOR", password: "" });
+    setForm({ name: "", email: "", phone: "", cpf: "", unitId: "", hasAccount: false, accessRole: "MORADOR", password: "" });
     setOpenModal(true);
   }
 
@@ -245,6 +259,7 @@ export default function Residents() {
       name: r.name ?? "",
       email: r.email ?? "",
       phone: r.phone ?? "",
+      cpf: r.cpf ?? "",
       unitId: selectedUnitId ? String(selectedUnitId) : "",
       hasAccount: Boolean(r.hasAccount),
       accessRole: r.accessRole ?? "MORADOR",
@@ -279,6 +294,7 @@ export default function Residents() {
           name: form.name.trim(),
           email: form.email.trim(),
           phone: form.phone.trim() || null,
+          cpf: form.cpf.trim() || null,
           unitId,
           hasAccount: form.hasAccount,
           accessRole: form.hasAccount ? form.accessRole : undefined,
@@ -293,6 +309,7 @@ export default function Residents() {
           name: form.name.trim(),
           email: form.email.trim(),
           phone: form.phone.trim() || null,
+          cpf: form.cpf.trim() || null,
           createAccount: form.hasAccount,
           accessRole: form.hasAccount ? form.accessRole : undefined,
           password: form.password.trim() || undefined,
@@ -446,7 +463,7 @@ export default function Residents() {
                   <div>
                     <div className="font-semibold text-slate-900 text-lg">{r.name}</div>
                     <div className="text-slate-600 text-sm mt-1">
-                      {r.email} {r.phone ? ` • ${r.phone}` : ""}
+                      {r.email} {r.phone ? ` • ${r.phone}` : ""} {r.cpf ? ` • CPF ${r.cpf}` : ""}
                     </div>
                   </div>
                   <span className="inline-flex items-center rounded-full bg-slate-100 text-slate-600 text-xs font-medium px-2.5 py-1">
@@ -543,6 +560,16 @@ export default function Residents() {
               value={form.phone}
               onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               className="border rounded-lg px-3 py-2 w-full"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-slate-600">CPF</label>
+            <input
+              value={form.cpf}
+              onChange={(e) => setForm((f) => ({ ...f, cpf: e.target.value }))}
+              className="border rounded-lg px-3 py-2 w-full"
+              placeholder="000.000.000-00"
             />
           </div>
 

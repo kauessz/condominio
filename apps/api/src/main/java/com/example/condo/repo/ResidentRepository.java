@@ -31,6 +31,8 @@ public interface ResidentRepository extends JpaRepository<Resident, Long> {
 
   Optional<Resident> findByTenantIdAndUserId(String tenantId, Long userId);
 
+  Optional<Resident> findFirstByTenantIdAndCondominiumIdAndUnitIdOrderByIdAsc(String tenantId, Long condominiumId, Long unitId);
+
   List<Resident> findByTenantIdAndCondominiumIdAndUnitIdIn(String tenantId, Long condominiumId, Iterable<Long> unitIds);
 
   List<Resident> findByTenantIdAndUnitIdIn(String tenantId, Iterable<Long> unitIds);

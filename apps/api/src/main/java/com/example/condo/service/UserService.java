@@ -29,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -177,8 +178,10 @@ public class UserService {
 
         user = userRepo.save(user);
         syncResidentAfterUserSave(tenantId, user, false);
-        auditService.log("CREATE", "User", user.getId(), user.getCondominiumId(), null, UserResponse.from(user));
-        return UserResponse.from(user, residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).map(Resident::getId).orElse(null));
+        Long residentId = residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).map(Resident::getId).orElse(null);
+        UserResponse after = UserResponse.from(user, residentId);
+        auditService.log("CREATE", "User", user.getId(), user.getCondominiumId(), null, after, userAuditDetails(user, residentId));
+        return after;
     }
 
     /**
@@ -227,8 +230,9 @@ public class UserService {
         user = userRepo.save(user);
         syncResidentAfterUserSave(tenantId, user, true);
         Long residentId = residentRepo.findByTenantIdAndUserId(tenantId, user.getId()).map(Resident::getId).orElse(null);
-        auditService.log("UPDATE", "User", user.getId(), user.getCondominiumId(), before, UserResponse.from(user, residentId));
-        return UserResponse.from(user, residentId);
+        UserResponse after = UserResponse.from(user, residentId);
+        auditService.log("UPDATE", "User", user.getId(), user.getCondominiumId(), before, after, userAuditDetails(user, residentId));
+        return after;
     }
 
     /**
@@ -252,7 +256,7 @@ public class UserService {
             residentRepo.save(resident);
         });
         userRepo.delete(user);
-        auditService.log("DELETE", "User", id, user.getCondominiumId(), before, null);
+        auditService.log("DELETE", "User", id, user.getCondominiumId(), before, null, userAuditDetails(user, residentId));
     }
 
     // ======================================================================
@@ -516,5 +520,21 @@ public class UserService {
             }
             residentRepo.save(resident);
         });
+    }
+
+    private Map<String, Object> userAuditDetails(User user, Long residentId) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("userId", user.getId());
+        details.put("userName", user.getName());
+        details.put("userEmail", user.getEmail());
+        details.put("role", user.getRole() != null ? user.getRole().name() : null);
+        details.put("residentId", residentId);
+        details.put("unitId", user.getUnitId());
+        details.put("unitLabel", buildUnitLabel(tenantIdOrCurrent(), user.getUnitId()));
+        return details;
+    }
+
+    private String tenantIdOrCurrent() {
+        return TenantContext.get();
     }
 }

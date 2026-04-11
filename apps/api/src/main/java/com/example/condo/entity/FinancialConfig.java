@@ -36,6 +36,21 @@ public class FinancialConfig {
     @Column(name = "pix_key_type")
     private String pixKeyType;
 
+    @Column(name = "default_billing_type", nullable = false)
+    private String defaultBillingType = "BOLETO";
+
+    @Column(name = "notification_email_enabled", nullable = false)
+    private boolean notificationEmailEnabled = true;
+
+    @Column(name = "notification_whatsapp_enabled", nullable = false)
+    private boolean notificationWhatsappEnabled = false;
+
+    @Column(name = "asaas_enabled", nullable = false)
+    private boolean asaasEnabled = false;
+
+    @Column(name = "asaas_webhook_token")
+    private String asaasWebhookToken;
+
     @Column(name = "updated_at")
     private Instant updatedAt;
 
@@ -66,6 +81,21 @@ public class FinancialConfig {
 
     public String getPixKeyType() { return pixKeyType; }
     public void setPixKeyType(String pixKeyType) { this.pixKeyType = pixKeyType; }
+
+    public String getDefaultBillingType() { return defaultBillingType; }
+    public void setDefaultBillingType(String defaultBillingType) { this.defaultBillingType = defaultBillingType; }
+
+    public boolean isNotificationEmailEnabled() { return notificationEmailEnabled; }
+    public void setNotificationEmailEnabled(boolean notificationEmailEnabled) { this.notificationEmailEnabled = notificationEmailEnabled; }
+
+    public boolean isNotificationWhatsappEnabled() { return notificationWhatsappEnabled; }
+    public void setNotificationWhatsappEnabled(boolean notificationWhatsappEnabled) { this.notificationWhatsappEnabled = notificationWhatsappEnabled; }
+
+    public boolean isAsaasEnabled() { return asaasEnabled; }
+    public void setAsaasEnabled(boolean asaasEnabled) { this.asaasEnabled = asaasEnabled; }
+
+    public String getAsaasWebhookToken() { return asaasWebhookToken; }
+    public void setAsaasWebhookToken(String asaasWebhookToken) { this.asaasWebhookToken = asaasWebhookToken; }
 
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }

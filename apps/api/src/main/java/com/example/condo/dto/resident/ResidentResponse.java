@@ -19,6 +19,7 @@ public record ResidentResponse(
     String name,
     String email,
     String phone,
+    String cpf,
     Long userId,
     boolean hasAccount,
     String accessRole
@@ -54,6 +55,7 @@ public record ResidentResponse(
             resident.getName(),
             resident.getEmail(),
             resident.getPhone(),
+            resident.getCpf(),
             resident.getUserId(),
             resident.getUserId() != null,
             null
@@ -80,6 +82,7 @@ public record ResidentResponse(
             resident.getName(),
             resident.getEmail(),
             resident.getPhone(),
+            resident.getCpf(),
             resident.getUserId(),
             resident.getUserId() != null,
             null
@@ -98,6 +101,7 @@ public record ResidentResponse(
             base.name(),
             base.email(),
             base.phone(),
+            base.cpf(),
             base.userId(),
             base.hasAccount(),
             accessRole

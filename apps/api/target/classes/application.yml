@@ -43,3 +43,10 @@ condohub:
   visitor:
     pending-timeout-minutes: 15
     expiration-check-interval-ms: 60000
+  financial:
+    due-soon-days: ${CONDOHUB_FINANCIAL_DUE_SOON_DAYS:3}
+    asaas:
+      enabled: ${ASAAS_ENABLED:false}
+      api-key: ${ASAAS_API_KEY:}
+      base-url: ${ASAAS_BASE_URL:https://api-sandbox.asaas.com}
+      webhook-token: ${ASAAS_WEBHOOK_TOKEN:}

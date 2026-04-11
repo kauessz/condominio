@@ -114,6 +114,7 @@ export type AppModule =
   | "parking"
   | "assemblies"
   | "financial"
+  | "audit"
   | "users"
   | "onboarding";
 
@@ -166,6 +167,8 @@ export function canAccessModule(module: AppModule) {
       return hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "MORADOR");
     case "financial":
       return hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "FINANCEIRO", "MORADOR");
+    case "audit":
+      return hasAnyRole("SUPERUSER", "ADMIN", "SINDICO");
     case "users":
       return hasAnyRole("SUPERUSER", "ADMIN", "SINDICO");
     case "onboarding":

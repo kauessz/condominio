@@ -22,6 +22,8 @@ import WorkOrders from "./pages/WorkOrders";
 import Parking from "./pages/Parking";
 import Assemblies from "./pages/Assemblies";
 import Financial from "./pages/Financial";
+import MyInvoices from "./pages/MyInvoices";
+import Audit from "./pages/Audit";
 
 import { ToastProvider } from "./components/Toast";
 import "./styles/index.css";
@@ -83,6 +85,10 @@ const router = createBrowserRouter([
 
       // --- Fase 2: Financeiro ---
       { path: "financial",            element: <Financial /> },
+      { path: "my-invoices",          element: <MyInvoices /> },
+
+      // --- Auditoria ---
+      { path: "audit",                element: <Audit /> },
     ],
   },
 

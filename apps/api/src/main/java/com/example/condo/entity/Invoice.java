@@ -9,9 +9,12 @@ import java.time.LocalDate;
 @Table(name = "invoice")
 public class Invoice {
 
-    public enum Status { PENDING, PAID, OVERDUE, CANCELLED, WAIVED }
+    public enum Status { DRAFT, PENDING, EXTERNAL_CREATED, AWAITING_PAYMENT, PARTIALLY_PAID, PAID, OVERDUE, CANCELLED, FAILED, WAIVED }
     public enum PaymentMethod { PIX, BOLETO, TRANSFER, CASH, OTHER }
     public enum ChargeType { CONDOMINIO, REFORMA, EXTRA, FUNDO_RESERVA, MULTA, OUTROS }
+    public enum Provider { ASAAS, MANUAL }
+    public enum BillingType { UNDEFINED, PIX, BOLETO, PIX_AND_BOLETO }
+    public enum ApportionmentMode { NONE, EQUAL }
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -60,6 +63,84 @@ public class Invoice {
 
     @Column(name = "payment_notes")
     private String paymentNotes;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "external_provider")
+    private Provider externalProvider;
+
+    @Column(name = "external_charge_id")
+    private String externalChargeId;
+
+    @Column(name = "external_invoice_number")
+    private String externalInvoiceNumber;
+
+    @Column(name = "external_customer_id")
+    private String externalCustomerId;
+
+    @Column(name = "external_reference")
+    private String externalReference;
+
+    @Column(name = "external_status")
+    private String externalStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "billing_type")
+    private BillingType billingType;
+
+    @Column(name = "pix_qr_code")
+    private String pixQrCode;
+
+    @Column(name = "pix_copy_paste")
+    private String pixCopyPaste;
+
+    @Column(name = "boleto_url")
+    private String boletoUrl;
+
+    @Column(name = "invoice_url")
+    private String invoiceUrl;
+
+    @Column(name = "pix_expires_at")
+    private Instant pixExpiresAt;
+
+    @Column(name = "last_webhook_at")
+    private Instant lastWebhookAt;
+
+    @Column(name = "last_notification_at")
+    private Instant lastNotificationAt;
+
+    @Column(name = "last_notification_type")
+    private String lastNotificationType;
+
+    @Column(name = "external_created_at")
+    private Instant externalCreatedAt;
+
+    @Column(name = "external_updated_at")
+    private Instant externalUpdatedAt;
+
+    @Column(name = "external_last_error")
+    private String externalLastError;
+
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+
+    @Column(name = "failed_at")
+    private Instant failedAt;
+
+    @Column(name = "apportionment_group")
+    private String apportionmentGroup;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "apportionment_mode")
+    private ApportionmentMode apportionmentMode = ApportionmentMode.NONE;
+
+    @Column(name = "external_last_event_id")
+    private String externalLastEventId;
+
+    @Column(name = "payment_received_at")
+    private Instant paymentReceivedAt;
+
+    @Column(name = "failure_reason")
+    private String failureReason;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -116,6 +197,81 @@ public class Invoice {
 
     public String getPaymentNotes() { return paymentNotes; }
     public void setPaymentNotes(String paymentNotes) { this.paymentNotes = paymentNotes; }
+
+    public Provider getExternalProvider() { return externalProvider; }
+    public void setExternalProvider(Provider externalProvider) { this.externalProvider = externalProvider; }
+
+    public String getExternalChargeId() { return externalChargeId; }
+    public void setExternalChargeId(String externalChargeId) { this.externalChargeId = externalChargeId; }
+
+    public String getExternalInvoiceNumber() { return externalInvoiceNumber; }
+    public void setExternalInvoiceNumber(String externalInvoiceNumber) { this.externalInvoiceNumber = externalInvoiceNumber; }
+
+    public String getExternalCustomerId() { return externalCustomerId; }
+    public void setExternalCustomerId(String externalCustomerId) { this.externalCustomerId = externalCustomerId; }
+
+    public String getExternalReference() { return externalReference; }
+    public void setExternalReference(String externalReference) { this.externalReference = externalReference; }
+
+    public String getExternalStatus() { return externalStatus; }
+    public void setExternalStatus(String externalStatus) { this.externalStatus = externalStatus; }
+
+    public BillingType getBillingType() { return billingType; }
+    public void setBillingType(BillingType billingType) { this.billingType = billingType; }
+
+    public String getPixQrCode() { return pixQrCode; }
+    public void setPixQrCode(String pixQrCode) { this.pixQrCode = pixQrCode; }
+
+    public String getPixCopyPaste() { return pixCopyPaste; }
+    public void setPixCopyPaste(String pixCopyPaste) { this.pixCopyPaste = pixCopyPaste; }
+
+    public String getBoletoUrl() { return boletoUrl; }
+    public void setBoletoUrl(String boletoUrl) { this.boletoUrl = boletoUrl; }
+
+    public String getInvoiceUrl() { return invoiceUrl; }
+    public void setInvoiceUrl(String invoiceUrl) { this.invoiceUrl = invoiceUrl; }
+
+    public Instant getPixExpiresAt() { return pixExpiresAt; }
+    public void setPixExpiresAt(Instant pixExpiresAt) { this.pixExpiresAt = pixExpiresAt; }
+
+    public Instant getLastWebhookAt() { return lastWebhookAt; }
+    public void setLastWebhookAt(Instant lastWebhookAt) { this.lastWebhookAt = lastWebhookAt; }
+
+    public Instant getLastNotificationAt() { return lastNotificationAt; }
+    public void setLastNotificationAt(Instant lastNotificationAt) { this.lastNotificationAt = lastNotificationAt; }
+
+    public String getLastNotificationType() { return lastNotificationType; }
+    public void setLastNotificationType(String lastNotificationType) { this.lastNotificationType = lastNotificationType; }
+
+    public Instant getExternalCreatedAt() { return externalCreatedAt; }
+    public void setExternalCreatedAt(Instant externalCreatedAt) { this.externalCreatedAt = externalCreatedAt; }
+
+    public Instant getExternalUpdatedAt() { return externalUpdatedAt; }
+    public void setExternalUpdatedAt(Instant externalUpdatedAt) { this.externalUpdatedAt = externalUpdatedAt; }
+
+    public String getExternalLastError() { return externalLastError; }
+    public void setExternalLastError(String externalLastError) { this.externalLastError = externalLastError; }
+
+    public Instant getCancelledAt() { return cancelledAt; }
+    public void setCancelledAt(Instant cancelledAt) { this.cancelledAt = cancelledAt; }
+
+    public Instant getFailedAt() { return failedAt; }
+    public void setFailedAt(Instant failedAt) { this.failedAt = failedAt; }
+
+    public String getApportionmentGroup() { return apportionmentGroup; }
+    public void setApportionmentGroup(String apportionmentGroup) { this.apportionmentGroup = apportionmentGroup; }
+
+    public ApportionmentMode getApportionmentMode() { return apportionmentMode; }
+    public void setApportionmentMode(ApportionmentMode apportionmentMode) { this.apportionmentMode = apportionmentMode; }
+
+    public String getExternalLastEventId() { return externalLastEventId; }
+    public void setExternalLastEventId(String externalLastEventId) { this.externalLastEventId = externalLastEventId; }
+
+    public Instant getPaymentReceivedAt() { return paymentReceivedAt; }
+    public void setPaymentReceivedAt(Instant paymentReceivedAt) { this.paymentReceivedAt = paymentReceivedAt; }
+
+    public String getFailureReason() { return failureReason; }
+    public void setFailureReason(String failureReason) { this.failureReason = failureReason; }
 
     public Status getStatus() { return status; }
     public void setStatus(Status status) { this.status = status; }

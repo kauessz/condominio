@@ -76,7 +76,11 @@ public class TenantFilter extends OncePerRequestFilter {
   protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
     if ("OPTIONS".equalsIgnoreCase(request.getMethod())) return true;
     String p = request.getRequestURI().toLowerCase(Locale.ROOT);
-    return p.startsWith("/swagger") || p.startsWith("/v3/api-docs") || p.startsWith("/actuator");
+    return p.startsWith("/swagger")
+        || p.startsWith("/v3/api-docs")
+        || p.startsWith("/actuator")
+        || p.equals("/api/financial/webhooks/asaas")
+        || p.equals("/api/payments/webhooks/payments");
   }
 
   private boolean hasBearerAuth(HttpServletRequest request) {

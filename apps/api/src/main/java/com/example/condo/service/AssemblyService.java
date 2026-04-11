@@ -1,5 +1,7 @@
 package com.example.condo.service;
 
+import com.example.condo.audit.AuditAction;
+import com.example.condo.audit.AuditModule;
 import com.example.condo.dto.assembly.AssemblyCreateAgendaItemRequest;
 import com.example.condo.dto.assembly.AssemblyCreateRequest;
 import com.example.condo.dto.assembly.AssemblyListItemResponse;
@@ -202,7 +204,17 @@ public class AssemblyService {
                 index++;
             }
         }
-        auditService.log("CREATE", "Assembly", a.getId(), a.getCondominiumId(), null, a);
+        auditService.log(
+            AuditModule.ASSEMBLIES,
+            AuditAction.CREATE_ASSEMBLY,
+            "Assembly",
+            a.getId(),
+            a.getCondominiumId(),
+            "Assembleia " + a.getTitle() + " criada.",
+            null,
+            a,
+            assemblyDetails(a)
+        );
         return a;
     }
 
@@ -254,7 +266,30 @@ public class AssemblyService {
         if (resolvedType == AssemblyAgendaItem.ItemType.OFFICE_ELECTION) {
             createElectionOptions(assembly, item, normalizedOptions, normalizedCandidateUserIds);
         }
-        auditService.log("CREATE", "AssemblyAgendaItem", item.getId(), assembly.getCondominiumId(), null, item);
+        auditService.log(
+            AuditModule.ASSEMBLIES,
+            AuditAction.ADD_AGENDA_ITEM,
+            "AssemblyAgendaItem",
+            item.getId(),
+            assembly.getCondominiumId(),
+            "Pauta " + item.getTitle() + " adicionada à assembleia " + assembly.getTitle() + ".",
+            null,
+            item,
+            assemblyAgendaDetails(assembly, item, normalizedCandidateUserIds)
+        );
+        if (resolvedType == AssemblyAgendaItem.ItemType.OFFICE_ELECTION && !normalizedCandidateUserIds.isEmpty()) {
+            auditService.log(
+                AuditModule.ASSEMBLIES,
+                AuditAction.ADD_ELECTION_CANDIDATES,
+                "AssemblyAgendaItem",
+                item.getId(),
+                assembly.getCondominiumId(),
+                "Candidatos vinculados à eleição de " + item.getOfficeName() + ".",
+                null,
+                null,
+                assemblyAgendaDetails(assembly, item, normalizedCandidateUserIds)
+            );
+        }
         return toAgendaResponse(item);
     }
 
@@ -268,7 +303,17 @@ public class AssemblyService {
         a.setStatus(Assembly.Status.OPEN);
         a.setOpenedAt(Instant.now());
         a = assemblyRepo.save(a);
-        auditService.log("OPEN", "Assembly", a.getId(), a.getCondominiumId(), before, a);
+        auditService.log(
+            AuditModule.ASSEMBLIES,
+            AuditAction.OPEN_ASSEMBLY,
+            "Assembly",
+            a.getId(),
+            a.getCondominiumId(),
+            "Assembleia " + a.getTitle() + " aberta para votação.",
+            before,
+            a,
+            simpleAssemblyStatusDetails(a)
+        );
         return a;
     }
 
@@ -282,7 +327,17 @@ public class AssemblyService {
         a.setStatus(Assembly.Status.CLOSED);
         a.setClosedAt(Instant.now());
         a = assemblyRepo.save(a);
-        auditService.log("CLOSE", "Assembly", a.getId(), a.getCondominiumId(), before, a);
+        auditService.log(
+            AuditModule.ASSEMBLIES,
+            AuditAction.CLOSE_ASSEMBLY,
+            "Assembly",
+            a.getId(),
+            a.getCondominiumId(),
+            "Assembleia " + a.getTitle() + " encerrada.",
+            before,
+            a,
+            simpleAssemblyStatusDetails(a)
+        );
         return a;
     }
 
@@ -307,7 +362,17 @@ public class AssemblyService {
         assembly.setValidatedAt(Instant.now());
         assembly.setValidatedBy(UserContext.userId());
         assembly = assemblyRepo.save(assembly);
-        auditService.log("VALIDATE", "Assembly", assembly.getId(), assembly.getCondominiumId(), before, assembly);
+        auditService.log(
+            AuditModule.ASSEMBLIES,
+            AuditAction.VALIDATE_RESULT,
+            "Assembly",
+            assembly.getId(),
+            assembly.getCondominiumId(),
+            "Resultado oficial da assembleia " + assembly.getTitle() + " validado.",
+            before,
+            assembly,
+            validationDetails(assembly)
+        );
         return assembly;
     }
 
@@ -365,7 +430,17 @@ public class AssemblyService {
         vote.setVotedBy(UserContext.userId());
         vote.setVotedAt(Instant.now());
         vote = voteRepo.save(vote);
-        auditService.log("VOTE_CAST", "AssemblyVote", vote.getId(), assembly.getCondominiumId(), null, vote);
+        auditService.log(
+            AuditModule.ASSEMBLIES,
+            AuditAction.CAST_VOTE,
+            "AssemblyVote",
+            vote.getId(),
+            assembly.getCondominiumId(),
+            "Voto registrado no item " + item.getTitle() + ".",
+            null,
+            vote,
+            voteDetails(assembly, item, vote)
+        );
         return vote;
     }
 
@@ -564,11 +639,18 @@ public class AssemblyService {
         if (candidate.getUnitId() == null) {
             return null;
         }
-        return unitRepo.findByTenantIdAndId(TenantContext.get(), candidate.getUnitId())
+        return buildUnitLabel(candidate.getUnitId());
+    }
+
+    private String buildUnitLabel(Long unitId) {
+        if (unitId == null) {
+            return null;
+        }
+        return unitRepo.findByTenantIdAndId(TenantContext.get(), unitId)
             .map(unit -> unit.getBlock() != null && !unit.getBlock().isBlank()
                 ? "Unidade " + unit.getNumber() + " • Bloco " + unit.getBlock()
                 : "Unidade " + unit.getNumber())
-            .orElse("Unidade #" + candidate.getUnitId());
+            .orElse("Unidade #" + unitId);
     }
 
     private void resolveElectionResult(Assembly assembly, AssemblyAgendaItem item) {
@@ -595,17 +677,29 @@ public class AssemblyService {
         if (winnerOption.getCandidateUserId() == null) {
             throw new BusinessException("Eleição sem vínculo real do candidato vencedor.");
         }
-        applySyndicRoleTransition(assembly, winnerOption.getCandidateUserId());
+        Map<String, Object> roleEffect = applySyndicRoleTransition(assembly, item, winnerOption);
         item.setResolutionStatus(AssemblyAgendaItem.ResolutionStatus.APPLIED);
         item.setWinningOptionId(winnerOption.getId());
         item.setAppliedUserId(winnerOption.getCandidateUserId());
         item.setResolvedAt(Instant.now());
         item.setResolvedBy(UserContext.userId());
         agendaRepo.save(item);
+        auditService.log(
+            AuditModule.ASSEMBLIES,
+            AuditAction.APPLY_ROLE_EFFECT,
+            "Assembly",
+            assembly.getId(),
+            assembly.getCondominiumId(),
+            "Eleição de " + item.getOfficeName() + " efetivada para " + winnerOption.getCandidateName() + ".",
+            null,
+            null,
+            roleEffect
+        );
     }
 
-    private void applySyndicRoleTransition(Assembly assembly, Long winnerUserId) {
+    private Map<String, Object> applySyndicRoleTransition(Assembly assembly, AssemblyAgendaItem item, AssemblyAgendaOption winnerOption) {
         String tenant = TenantContext.get();
+        Long winnerUserId = winnerOption.getCandidateUserId();
         User winner = userRepo.findByTenantIdAndId(tenant, winnerUserId)
             .orElseThrow(() -> new ResourceNotFoundException("Usuário vencedor", "id", winnerUserId));
         validateCandidateScope(assembly.getCondominiumId(), winner);
@@ -615,17 +709,81 @@ public class AssemblyService {
             assembly.getCondominiumId(),
             List.of(Role.SINDICO)
         );
+        List<Long> demotedUserIds = new java.util.ArrayList<>();
         for (User currentSyndic : condominiumUsers) {
             if (currentSyndic.getId().equals(winner.getId())) {
                 continue;
             }
             currentSyndic.setRole(Role.MORADOR);
             userRepo.save(currentSyndic);
-            auditService.log("ROLE_CHANGE", "User", currentSyndic.getId(), currentSyndic.getCondominiumId(), null, "SINDICO->MORADOR");
+            demotedUserIds.add(currentSyndic.getId());
         }
 
         winner.setRole(Role.SINDICO);
         userRepo.save(winner);
-        auditService.log("ROLE_CHANGE", "User", winner.getId(), winner.getCondominiumId(), null, "WINNER->SINDICO");
+        return Map.of(
+            "assemblyId", assembly.getId(),
+            "agendaItemId", item.getId(),
+            "officeName", item.getOfficeName(),
+            "winnerUserId", winner.getId(),
+            "winnerName", winner.getName(),
+            "winningOptionId", winnerOption.getId(),
+            "demotedUserIds", demotedUserIds
+        );
+    }
+
+    private Map<String, Object> assemblyAgendaDetails(Assembly assembly, AssemblyAgendaItem item, List<Long> candidateUserIds) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("assemblyId", assembly.getId());
+        details.put("assemblyTitle", assembly.getTitle());
+        details.put("agendaItemId", item.getId());
+        details.put("agendaItemTitle", item.getTitle());
+        details.put("agendaTitle", item.getTitle());
+        details.put("itemType", item.getItemType().name());
+        details.put("officeName", item.getOfficeName());
+        details.put("candidateUserIds", candidateUserIds);
+        return details;
+    }
+
+    private Map<String, Object> assemblyDetails(Assembly assembly) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("assemblyId", assembly.getId());
+        details.put("assemblyTitle", assembly.getTitle());
+        details.put("scheduledAt", assembly.getScheduledAt());
+        details.put("location", assembly.getLocation());
+        return details;
+    }
+
+    private Map<String, Object> simpleAssemblyStatusDetails(Assembly assembly) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("assemblyId", assembly.getId());
+        details.put("assemblyTitle", assembly.getTitle());
+        details.put("status", assembly.getStatus().name());
+        return details;
+    }
+
+    private Map<String, Object> validationDetails(Assembly assembly) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("assemblyId", assembly.getId());
+        details.put("assemblyTitle", assembly.getTitle());
+        details.put("validatedAt", assembly.getValidatedAt());
+        return details;
+    }
+
+    private Map<String, Object> voteDetails(Assembly assembly, AssemblyAgendaItem item, AssemblyVote vote) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("assemblyId", assembly.getId());
+        details.put("assemblyTitle", assembly.getTitle());
+        details.put("agendaItemId", item.getId());
+        details.put("agendaItemTitle", item.getTitle());
+        details.put("agendaTitle", item.getTitle());
+        details.put("unitId", vote.getUnitId());
+        details.put("unitLabel", buildUnitLabel(vote.getUnitId()));
+        details.put("voteValue", vote.getVoteValue() != null ? vote.getVoteValue().name() : null);
+        details.put("optionId", vote.getOptionId());
+        if (vote.getOptionId() != null) {
+            optionRepo.findById(vote.getOptionId()).ifPresent(option -> details.put("candidateName", option.getCandidateName()));
+        }
+        return details;
     }
 }

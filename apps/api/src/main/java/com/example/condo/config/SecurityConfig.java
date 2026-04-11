@@ -215,6 +215,12 @@ public class SecurityConfig {
                     "/users", "/users/**"
                 ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO")
 
+                // ===== Auditoria =====
+                .requestMatchers(HttpMethod.GET,
+                    "/api/audit", "/api/audit/**",
+                    "/audit", "/audit/**"
+                ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO")
+
                 // ===== Usuários — criação =====
                 // SUPERUSER pode criar em qualquer condo; ADMIN/SINDICO criam no próprio condo
                 .requestMatchers(HttpMethod.POST,
@@ -258,16 +264,17 @@ public class SecurityConfig {
                 ).authenticated()
 
                 // ===== Ordens de Serviço =====
+                // OPERADOR incluído explicitamente em leitura (cobertura operacional)
                 .requestMatchers(HttpMethod.GET,
                     "/api/work-orders", "/api/work-orders/**",
                     "/api/work-order-categories", "/api/work-order-categories/**"
-                ).authenticated()
+                ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "FINANCEIRO", "OPERADOR", "ZELADOR", "PORTARIA", "MORADOR")
                 .requestMatchers(HttpMethod.POST,
                     "/api/work-orders"
-                ).authenticated()
+                ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "OPERADOR", "ZELADOR", "PORTARIA", "MORADOR")
                 .requestMatchers(HttpMethod.PATCH,
                     "/api/work-orders/**"
-                ).authenticated()
+                ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "OPERADOR", "ZELADOR")
 
                 // ===== Vagas / Sorteio =====
                 .requestMatchers(
@@ -292,18 +299,26 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET,
                     "/api/financial/invoices", "/api/financial/invoices/**"
                 ).authenticated()
+                .requestMatchers(HttpMethod.POST,
+                    "/api/financial/webhooks/asaas",
+                    "/api/financial/webhooks/asaas/**",
+                    "/api/payments/webhooks/payments"
+                ).permitAll()
                 .requestMatchers(HttpMethod.GET,
                     "/api/financial/config"
                 ).authenticated()
 
                 .requestMatchers(HttpMethod.GET,
                     "/api/financial/summary"
-                ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "FINANCEIRO")
+                ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "FINANCEIRO", "MORADOR")
                 .requestMatchers(HttpMethod.PUT,
                     "/api/financial/config"
                 ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "FINANCEIRO")
                 .requestMatchers(HttpMethod.PATCH,
                     "/api/financial/invoices/**"
+                ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "FINANCEIRO")
+                .requestMatchers(HttpMethod.POST,
+                    "/api/financial/invoices/*/external-charge"
                 ).hasAnyRole("SUPERUSER", "ADMIN", "SINDICO", "FINANCEIRO")
 
                 // ===== Qualquer outra rota: autenticado =====

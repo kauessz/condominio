@@ -10,6 +10,7 @@ public record InvoiceListItemResponse(
     String condominiumName,
     Long unitId,
     String unitLabel,
+    String residentName,
     String referenceMonth,
     String chargeType,
     String title,
@@ -19,6 +20,18 @@ public record InvoiceListItemResponse(
     String status,
     Instant paidAt,
     BigDecimal paidAmount,
-    String paymentMethod
+    String paymentMethod,
+    String externalProvider,
+    String externalChargeId,
+    String externalStatus,
+    String billingType,
+    String boletoUrl,
+    String invoiceUrl,
+    String pixCopyPaste,
+    String pixQrCode,
+    Instant pixExpiresAt,
+    Instant lastWebhookAt,
+    Instant lastNotificationAt,
+    String lastNotificationType
 ) {
 }

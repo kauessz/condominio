@@ -1,6 +1,7 @@
 package com.example.condo.dto.resident;
 
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -20,6 +21,13 @@ public record UpdateResidentRequest(
 
     @Size(max = 20, message = "Telefone deve ter no máximo 20 caracteres")
     String phone,
+
+    /** CPF no formato 000.000.000-00 ou apenas 11 dígitos. Campo opcional. */
+    @Pattern(
+        regexp = "\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}|\\d{11}",
+        message = "CPF deve estar no formato 000.000.000-00 ou conter 11 dígitos"
+    )
+    String cpf,
 
     Boolean hasAccount,
 

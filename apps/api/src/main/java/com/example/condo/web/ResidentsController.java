@@ -1,12 +1,13 @@
 package com.example.condo.web;
 
+import com.example.condo.dto.common.PageResponse;
 import com.example.condo.dto.resident.CreateResidentRequest;
 import com.example.condo.dto.resident.ResidentResponse;
 import com.example.condo.dto.resident.UpdateResidentRequest;
 import com.example.condo.service.ResidentService;
 import jakarta.validation.Valid;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -39,14 +40,19 @@ public class ResidentsController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('SUPERUSER','SINDICO','ADMIN','PORTARIA','MORADOR')")
-    public Page<ResidentResponse> list(
+    public PageResponse<ResidentResponse> list(
         @RequestParam(value = "condoId", required = false) Long condominiumId,
         @RequestParam(value = "condominiumId", required = false) Long condominiumIdAlt,
         @RequestParam(value = "q", required = false) String query,
-        Pageable pageable
+        @RequestParam(value = "page", defaultValue = "0") int page,
+        @RequestParam(value = "size", required = false) Integer size,
+        @RequestParam(value = "pageSize", required = false) Integer pageSize,
+        @RequestParam(value = "sortBy", defaultValue = "name") String sortBy,
+        @RequestParam(value = "sortDir", defaultValue = "asc") String sortDir
     ) {
         Long effectiveCondoId = condominiumId != null ? condominiumId : condominiumIdAlt;
-        return residentService.search(effectiveCondoId, query, pageable);
+        var pageable = buildPageRequest(page, size, pageSize, sortBy, sortDir);
+        return PageResponse.of(residentService.search(effectiveCondoId, query, pageable));
     }
 
     @GetMapping("/count-by-unit")
@@ -87,5 +93,15 @@ public class ResidentsController {
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         residentService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private PageRequest buildPageRequest(int page, Integer size, Integer pageSize, String sortBy, String sortDir) {
+        int resolvedSize = Math.max(1, Math.min(size != null ? size : (pageSize != null ? pageSize : 20), 200));
+        String resolvedSortBy = switch (sortBy) {
+            case "email" -> "email";
+            default -> "name";
+        };
+        Sort.Direction direction = "desc".equalsIgnoreCase(sortDir) ? Sort.Direction.DESC : Sort.Direction.ASC;
+        return PageRequest.of(Math.max(page, 0), resolvedSize, Sort.by(direction, resolvedSortBy));
     }
 }

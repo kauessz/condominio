@@ -2,8 +2,20 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { setToken } from "./lib/api";
-import { loadAuthFromStorage, setUser, hasToken } from "./lib/auth";
+import { loadAuthFromStorage, setUser, hasToken, type Role, type User } from "./lib/auth";
 import api from "./lib/api";
+
+function normalizeAuthenticatedUser(raw: any): User {
+  return {
+    id: String(raw?.id ?? ""),
+    name: raw?.name ?? raw?.email ?? "",
+    email: raw?.email ?? "",
+    role: (raw?.role as Role) ?? "ADMIN",
+    unitId: raw?.unitId != null ? String(raw.unitId) : undefined,
+    condominiumId:
+      raw?.condominiumId != null ? String(raw.condominiumId) : undefined,
+  };
+}
 
 export default function RequireAuth({ children }: { children: ReactNode }) {
   const [ok, setOk] = useState(false);
@@ -31,12 +43,12 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Fallback: tenta buscar /auth/me (sem derrubar sessão via interceptor)
+    // Fallback: tenta buscar /api/auth/me (sem derrubar sessão via interceptor)
     api
-      .get("/auth/me", { headers: { "X-Skip-Auth-Redirect": "true" } })
+      .get("/api/auth/me", { headers: { "X-Skip-Auth-Redirect": "true" } })
       .then((r) => {
         if (!alive) return;
-        setUser(r.data);
+        setUser(normalizeAuthenticatedUser(r.data));
         setOk(true);
       })
       .catch(() => {

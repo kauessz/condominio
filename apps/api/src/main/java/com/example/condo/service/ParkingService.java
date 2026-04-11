@@ -1,5 +1,7 @@
 package com.example.condo.service;
 
+import com.example.condo.audit.AuditAction;
+import com.example.condo.audit.AuditModule;
 import com.example.condo.dto.parking.ParkingAssignmentRequest;
 import com.example.condo.dto.parking.ParkingAssignmentResponse;
 import com.example.condo.dto.parking.ParkingDrawRegistrationResponse;
@@ -78,7 +80,17 @@ public class ParkingService {
         spot.setActive(true);
         spot.setCreatedAt(Instant.now());
         spot = spotRepo.save(spot);
-        auditService.log("CREATE", "ParkingSpot", spot.getId(), spot.getCondominiumId(), null, spot);
+        auditService.log(
+            AuditModule.PARKING,
+            AuditAction.CREATE_PARKING_SPOT,
+            "ParkingSpot",
+            spot.getId(),
+            spot.getCondominiumId(),
+            "Vaga " + spot.getCode() + " cadastrada.",
+            null,
+            spot,
+            Map.of("parkingSpotId", spot.getId(), "parkingSpotCode", spot.getCode())
+        );
         return spot;
     }
 
@@ -150,7 +162,17 @@ public class ParkingService {
         draw.setCreatedBy(UserContext.userId());
         draw.setCreatedAt(Instant.now());
         draw = drawRepo.save(draw);
-        auditService.log("CREATE", "ParkingDraw", draw.getId(), draw.getCondominiumId(), null, draw);
+        auditService.log(
+            AuditModule.PARKING,
+            AuditAction.CREATE_DRAW,
+            "ParkingDraw",
+            draw.getId(),
+            draw.getCondominiumId(),
+            "Sorteio de vagas " + draw.getName() + " criado.",
+            null,
+            draw,
+            Map.of("drawId", draw.getId(), "drawName", draw.getName(), "validFrom", draw.getValidFrom(), "validUntil", draw.getValidUntil())
+        );
         return draw;
     }
 
@@ -293,7 +315,22 @@ public class ParkingService {
         draw.setExecutedAt(Instant.now());
         draw.setExecutedBy(UserContext.userId());
         drawRepo.save(draw);
-        auditService.log("EXECUTE", "ParkingDraw", draw.getId(), draw.getCondominiumId(), before, draw);
+        auditService.log(
+            AuditModule.PARKING,
+            AuditAction.EXECUTE_DRAW,
+            "ParkingDraw",
+            draw.getId(),
+            draw.getCondominiumId(),
+            "Sorteio " + draw.getName() + " executado com " + assignments.size() + " atribuição(ões).",
+            before,
+            draw,
+            Map.of(
+                "drawId", draw.getId(),
+                "drawName", draw.getName(),
+                "assignmentIds", assignments.stream().map(ParkingSpotAssignment::getId).toList(),
+                "assignmentCount", assignments.size()
+            )
+        );
 
         return assignments;
     }
@@ -340,7 +377,24 @@ public class ParkingService {
         assignment = assignRepo.save(assignment);
         ParkingAssignmentResponse response = toAssignmentResponses(tenant, List.of(assignment)).stream().findFirst()
             .orElseThrow(() -> new BusinessException("Falha ao montar a atribuição criada."));
-        auditService.log("CREATE", "ParkingSpotAssignment", assignment.getId(), assignment.getCondominiumId(), null, response);
+        auditService.log(
+            AuditModule.PARKING,
+            AuditAction.ASSIGN_PARKING_SPOT,
+            "ParkingSpotAssignment",
+            assignment.getId(),
+            assignment.getCondominiumId(),
+            "Vaga " + response.spotCode() + " atribuída manualmente para " + response.unitLabel() + ".",
+            null,
+            response,
+            Map.of(
+                "parkingSpotId", assignment.getSpotId(),
+                "parkingSpotCode", response.spotCode(),
+                "unitId", assignment.getUnitId(),
+                "unitLabel", response.unitLabel(),
+                "validFrom", assignment.getValidFrom(),
+                "validUntil", assignment.getValidUntil()
+            )
+        );
         return response;
     }
 
@@ -379,7 +433,23 @@ public class ParkingService {
         ParkingAssignmentResponse before = toAssignmentResponses(tenant, List.of(assignment)).stream().findFirst().orElse(null);
         assignment.setStatus(ParkingSpotAssignment.Status.CANCELLED);
         assignRepo.save(assignment);
-        auditService.log("CANCEL", "ParkingSpotAssignment", assignment.getId(), assignment.getCondominiumId(), before, null);
+        auditService.log(
+            AuditModule.PARKING,
+            AuditAction.REMOVE_PARKING_ASSIGNMENT,
+            "ParkingSpotAssignment",
+            assignment.getId(),
+            assignment.getCondominiumId(),
+            "Atribuição da vaga " + before.spotCode() + " para " + before.unitLabel() + " foi removida.",
+            before,
+            null,
+            Map.of(
+                "parkingSpotId", assignment.getSpotId(),
+                "parkingSpotCode", before.spotCode(),
+                "unitId", assignment.getUnitId(),
+                "unitLabel", before.unitLabel(),
+                "status", assignment.getStatus().name()
+            )
+        );
     }
 
     private void enforceSameCondominium(Long condoId) {

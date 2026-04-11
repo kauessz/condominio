@@ -148,13 +148,11 @@ export default function Visitors() {
   const canEdit    = isManager || isPortaria;
   const canApprove = isSuperuser || isAdmin || isSindico || isMorador;
   const canOperateAccess = isSuperuser || isAdmin || isSindico || isPortaria;
-  const superuserUrlCondominiumId = sp.get("condoId") || sp.get("condominiumId") || "";
-  const effectiveSuperuserCondominiumId = selectedCondominiumId || superuserUrlCondominiumId;
 
   // condoId: relevante apenas para SUPERUSER; outros usam JWT no backend
   const condoId = isSuperuser
-    ? Number(effectiveSuperuserCondominiumId || "0")
-    : Number(sp.get("condoId") || sp.get("condominiumId") || currentUser?.condominiumId || "0");
+    ? Number(selectedCondominiumId || "0")
+    : Number(currentUser?.condominiumId || sp.get("condoId") || sp.get("condominiumId") || "0");
 
   const [q, setQ] = useState(sp.get("q") ?? "");
   const [from, setFrom] = useState(sp.get("from") ?? "");
@@ -178,9 +176,9 @@ export default function Visitors() {
 
   function sync() {
     const n = new URLSearchParams(sp);
-    if (condoId) n.set("condoId", String(condoId));
+    if (!isSuperuser && condoId) n.set("condoId", String(condoId));
     else n.delete("condoId");
-    if (condoId) n.set("condominiumId", String(condoId));
+    if (!isSuperuser && condoId) n.set("condominiumId", String(condoId));
     else n.delete("condominiumId");
     n.set("q", q || "");
     if (from) n.set("from", from); else n.delete("from");
@@ -196,14 +194,6 @@ export default function Visitors() {
 
   useEffect(() => {
     if (!isSuperuser) return;
-    const queryCondoId = sp.get("condoId") || sp.get("condominiumId") || "";
-    if (queryCondoId && queryCondoId !== selectedCondominiumId) {
-      setSelectedCondominiumId(queryCondoId);
-    }
-  }, [isSuperuser, selectedCondominiumId, setSelectedCondominiumId, sp]);
-
-  useEffect(() => {
-    if (!isSuperuser) return;
     api.get("/condominiums", { params: { pageSize: 100 } })
       .then((r) => {
         const raw = r.data;
@@ -212,13 +202,6 @@ export default function Visitors() {
       })
       .catch(() => setCondos([]));
   }, [isSuperuser]);
-
-  useEffect(() => {
-    if (!isSuperuser || !superuserUrlCondominiumId || selectedCondominiumId === superuserUrlCondominiumId) {
-      return;
-    }
-    setSelectedCondominiumId(superuserUrlCondominiumId);
-  }, [isSuperuser, selectedCondominiumId, setSelectedCondominiumId, superuserUrlCondominiumId]);
 
   async function load() {
     if (isSuperuser && !condoId) {
@@ -289,8 +272,8 @@ export default function Visitors() {
     }
   }
 
-  useEffect(() => { sync(); /* eslint-disable-next-line */ }, [q, from, to, status, vtype, sortBy, sortDir, page, size]);
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [sp]);
+  useEffect(() => { sync(); /* eslint-disable-next-line */ }, [q, from, to, status, vtype, sortBy, sortDir, page, size, isSuperuser, condoId]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [q, from, to, status, vtype, sortBy, sortDir, page, size, selectedCondominiumId, currentUser?.condominiumId]);
   useEffect(() => { loadUnits(); /* eslint-disable-next-line */ }, [condoId]);
 
   const [open, setOpen] = useState(false);
@@ -481,7 +464,10 @@ export default function Visitors() {
           <select
             className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-slate-400"
             value={selectedCondominiumId}
-            onChange={(e) => setSelectedCondominiumId(e.target.value)}
+            onChange={(e) => {
+              setSelectedCondominiumId(e.target.value);
+              setPage(0);
+            }}
           >
             <option value="">Selecione um condomínio…</option>
             {condos.map((condo) => (

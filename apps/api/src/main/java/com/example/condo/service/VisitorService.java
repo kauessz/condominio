@@ -1,5 +1,7 @@
 package com.example.condo.service;
 
+import com.example.condo.audit.AuditAction;
+import com.example.condo.audit.AuditModule;
 import com.example.condo.dto.visitor.*;
 import com.example.condo.entity.Condominium;
 import com.example.condo.entity.Unit;
@@ -18,6 +20,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 @Service
@@ -119,7 +123,17 @@ public class VisitorService {
 
         visitor = visitorRepo.save(visitor);
         VisitorResponse after = toResponse(visitor);
-        auditService.log("CREATE", "Visitor", visitor.getId(), visitor.getCondominiumId(), null, after);
+        auditService.log(
+            AuditModule.VISITORS,
+            visitor.getType() == Visitor.Type.DELIVERY ? AuditAction.REGISTER_DELIVERY : AuditAction.CREATE_VISITOR,
+            "Visitor",
+            visitor.getId(),
+            visitor.getCondominiumId(),
+            describeVisitorCreation(visitor),
+            null,
+            after,
+            visitorDetails(visitor, null, after.status())
+        );
         return after;
     }
 
@@ -149,7 +163,17 @@ public class VisitorService {
 
         visitor = visitorRepo.save(visitor);
         VisitorResponse after = toResponse(visitor);
-        auditService.log("UPDATE", "Visitor", visitor.getId(), visitor.getCondominiumId(), before, after);
+        auditService.log(
+            AuditModule.VISITORS,
+            AuditAction.UPDATE_VISITOR,
+            "Visitor",
+            visitor.getId(),
+            visitor.getCondominiumId(),
+            "Cadastro de visitante " + after.name() + " atualizado.",
+            before,
+            after,
+            visitorDetails(visitor, before.status(), after.status())
+        );
         return after;
     }
 
@@ -176,7 +200,17 @@ public class VisitorService {
 
         visitor = visitorRepo.save(visitor);
         VisitorResponse after = toResponse(visitor);
-        auditService.log("APPROVE", "Visitor", visitor.getId(), visitor.getCondominiumId(), before, after);
+        auditService.log(
+            AuditModule.VISITORS,
+            AuditAction.APPROVE_VISITOR,
+            "Visitor",
+            visitor.getId(),
+            visitor.getCondominiumId(),
+            "Visitante " + after.name() + " aprovado para a unidade " + formatUnitLabel(after.unitCode(), after.unitNumber(), after.unitBlock()) + ".",
+            before,
+            after,
+            visitorDetails(visitor, before.status(), after.status())
+        );
         return after;
     }
 
@@ -197,7 +231,17 @@ public class VisitorService {
         visitor.setRejectionReason(request.reason().trim());
         visitor = visitorRepo.save(visitor);
         VisitorResponse after = toResponse(visitor);
-        auditService.log("REJECT", "Visitor", visitor.getId(), visitor.getCondominiumId(), before, after);
+        auditService.log(
+            AuditModule.VISITORS,
+            AuditAction.REJECT_VISITOR,
+            "Visitor",
+            visitor.getId(),
+            visitor.getCondominiumId(),
+            "Visitante " + after.name() + " rejeitado" + (after.rejectionReason() != null ? ": " + after.rejectionReason() : "."),
+            before,
+            after,
+            visitorDetails(visitor, before.status(), after.status())
+        );
         return after;
     }
 
@@ -221,7 +265,19 @@ public class VisitorService {
         visitor.setCheckOutAt(Instant.now());
         visitor = visitorRepo.save(visitor);
         VisitorResponse after = toResponse(visitor);
-        auditService.log("CHECK_OUT", "Visitor", visitor.getId(), visitor.getCondominiumId(), before, after);
+        auditService.log(
+            AuditModule.VISITORS,
+            visitor.getType() == Visitor.Type.DELIVERY ? AuditAction.WITHDRAW_DELIVERY : AuditAction.CHECK_OUT_VISITOR,
+            "Visitor",
+            visitor.getId(),
+            visitor.getCondominiumId(),
+            visitor.getType() == Visitor.Type.DELIVERY
+                ? "Entrega " + after.name() + " marcada como retirada."
+                : "Checkout registrado para o visitante " + after.name() + ".",
+            before,
+            after,
+            visitorDetails(visitor, before.status(), after.status())
+        );
         return after;
     }
 
@@ -234,7 +290,17 @@ public class VisitorService {
         VisitorResponse before = VisitorResponse.from(visitor);
         visitor.setDeletedAt(Instant.now());
         visitorRepo.save(visitor);
-        auditService.log("DELETE", "Visitor", id, visitor.getCondominiumId(), before, null);
+        auditService.log(
+            AuditModule.VISITORS,
+            AuditAction.DELETE,
+            "Visitor",
+            id,
+            visitor.getCondominiumId(),
+            "Registro de visitante " + before.name() + " removido.",
+            before,
+            null,
+            visitorDetails(visitor, before.status(), null)
+        );
     }
 
     @Transactional
@@ -290,8 +356,82 @@ public class VisitorService {
 
         visitor = visitorRepo.save(visitor);
         VisitorResponse after = toResponse(visitor);
-        auditService.log("STATUS_CHANGE", "Visitor", visitor.getId(), visitor.getCondominiumId(), before, after);
+        auditService.log(
+            AuditModule.VISITORS,
+            resolveStatusAction(visitor.getType(), newStatus),
+            "Visitor",
+            visitor.getId(),
+            visitor.getCondominiumId(),
+            describeStatusChange(visitor, before.status(), after.status()),
+            before,
+            after,
+            visitorDetails(visitor, before.status(), after.status())
+        );
         return after;
+    }
+
+    private AuditAction resolveStatusAction(Visitor.Type type, Visitor.Status status) {
+        return switch (status) {
+            case APPROVED -> AuditAction.APPROVE_VISITOR;
+            case REJECTED -> AuditAction.REJECT_VISITOR;
+            case CHECKED_IN -> AuditAction.CHECK_IN_VISITOR;
+            case CHECKED_OUT -> type == Visitor.Type.DELIVERY ? AuditAction.WITHDRAW_DELIVERY : AuditAction.CHECK_OUT_VISITOR;
+            default -> AuditAction.STATUS_CHANGE;
+        };
+    }
+
+    private String describeVisitorCreation(Visitor visitor) {
+        if (visitor.getType() == Visitor.Type.DELIVERY) {
+            return "Entrega " + visitor.getName() + " registrada para a unidade " + (visitor.getUnitId() != null ? "#" + visitor.getUnitId() : "sem unidade") + ".";
+        }
+        return visitor.getUnitId() != null
+            ? "Visitante " + visitor.getName() + " cadastrado para a unidade #" + visitor.getUnitId() + "."
+            : "Visitante " + visitor.getName() + " cadastrado.";
+    }
+
+    private String describeStatusChange(Visitor visitor, String beforeStatus, String afterStatus) {
+        if (visitor.getType() == Visitor.Type.DELIVERY && "CHECKED_OUT".equals(afterStatus)) {
+            return "Entrega " + visitor.getName() + " marcada como retirada.";
+        }
+        if ("CHECKED_IN".equals(afterStatus)) {
+            return "Check-in registrado para " + visitor.getName() + ".";
+        }
+        if ("CHECKED_OUT".equals(afterStatus)) {
+            return "Checkout registrado para " + visitor.getName() + ".";
+        }
+        return "Status de " + visitor.getName() + " alterado de " + beforeStatus + " para " + afterStatus + ".";
+    }
+
+    private Map<String, Object> visitorDetails(Visitor visitor, String beforeStatus, String afterStatus) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("visitorId", visitor.getId());
+        details.put("visitorName", visitor.getName());
+        details.put("visitorType", visitor.getType().name());
+        details.put("unitId", visitor.getUnitId());
+        details.put("unitLabel", buildUnitLabel(visitor.getUnitId()));
+        details.put("statusBefore", beforeStatus);
+        details.put("statusAfter", afterStatus);
+        details.put("expectedInAt", visitor.getExpectedInAt());
+        details.put("expectedOutAt", visitor.getExpectedOutAt());
+        return details;
+    }
+
+    private String formatUnitLabel(String unitCode, String unitNumber, String unitBlock) {
+        String base = unitNumber != null && !unitNumber.isBlank()
+            ? unitNumber
+            : (unitCode != null && !unitCode.isBlank() ? unitCode : "sem identificação");
+        return unitBlock != null && !unitBlock.isBlank() ? base + " • Bloco " + unitBlock : base;
+    }
+
+    private String buildUnitLabel(Long unitId) {
+        if (unitId == null) {
+            return null;
+        }
+        return unitRepo.findByTenantIdAndId(TenantContext.get(), unitId)
+            .map(unit -> unit.getBlock() != null && !unit.getBlock().isBlank()
+                ? "Unidade " + unit.getNumber() + " - Bloco " + unit.getBlock()
+                : "Unidade " + unit.getNumber())
+            .orElse("Unidade #" + unitId);
     }
 
     private void ensurePending(Visitor.Status current) {

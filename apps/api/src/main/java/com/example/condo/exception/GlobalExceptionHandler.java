@@ -196,30 +196,55 @@ public class GlobalExceptionHandler {
     ) {
         log.error("Violação de integridade de dados", ex);
 
+        HttpStatus status = HttpStatus.CONFLICT;
         String message = "Operação não pode ser completada devido a conflito de dados";
+        Map<String, Object> details = null;
 
         // Tenta extrair mensagem mais amigável de constraints conhecidas
-        String causeMessage = ex.getMostSpecificCause().getMessage();
-        if (causeMessage != null) {
-            if (causeMessage.contains("unique_email")) {
+        String causeMessage = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : null;
+        String normalizedCause = causeMessage != null ? causeMessage.toLowerCase() : "";
+        String normalizedMessage = ex.getMessage() != null ? ex.getMessage().toLowerCase() : "";
+        if (!normalizedCause.isBlank() || !normalizedMessage.isBlank()) {
+            String combinedMessage = normalizedCause + " " + normalizedMessage;
+            if (normalizedCause.contains("unique_email")) {
                 message = "Já existe um usuário com este e-mail";
-            } else if (causeMessage.contains("unique_unit_number")) {
+            } else if (normalizedCause.contains("unique_unit_number")) {
                 message = "Já existe uma unidade com este número/bloco neste condomínio";
-            } else if (causeMessage.contains("reservation_no_overlap")) {
+            } else if (combinedMessage.contains("audit_log") && combinedMessage.contains("value too long for type character varying(64)")) {
+                status = HttpStatus.INTERNAL_SERVER_ERROR;
+                message = "A operação foi processada, mas houve uma falha ao registrar a auditoria. Tente novamente se necessário.";
+                details = Map.of("resource", "audit_log");
+            } else if (normalizedCause.contains("uq_invoice_unit_launch_key")
+                || normalizedCause.contains("invoice_unit_launch_key")) {
+                message = "Já existe uma cobrança igual para esta unidade. Recarregue a lista para ver o lançamento existente.";
+                details = Map.of("constraint", "uq_invoice_unit_launch_key");
+            } else if (normalizedCause.contains("uq_invoice_unit_month")
+                || normalizedCause.contains("invoice_unit_month")) {
+                message = "Já existe uma cobrança persistida para esta unidade na competência informada. Se isso não era esperado, alinhe o schema local do financeiro.";
+                details = Map.of("constraint", "uq_invoice_unit_month");
+            } else if (normalizedCause.contains("reservation_no_overlap")) {
                 message = "Já existe uma reserva para esta área no período informado";
-            } else if (causeMessage.contains("foreign key constraint")) {
+            } else if (normalizedCause.contains("foreign key constraint")) {
                 message = "Não é possível deletar este recurso pois ele está sendo usado";
             }
         }
 
-        ErrorResponse error = ErrorResponse.of(
-            HttpStatus.CONFLICT.value(),
-            "Data Integrity Violation",
-            message,
-            request.getRequestURI()
-        );
+        ErrorResponse error = details == null
+            ? ErrorResponse.of(
+                status.value(),
+                "Data Integrity Violation",
+                message,
+                request.getRequestURI()
+            )
+            : ErrorResponse.withDetails(
+                status.value(),
+                "Data Integrity Violation",
+                message,
+                request.getRequestURI(),
+                details
+            );
 
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+        return ResponseEntity.status(status).body(error);
     }
 
     /**

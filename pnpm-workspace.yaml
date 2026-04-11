@@ -1,2 +1,4 @@
 packages:
-  - "apps/*"
+  - "apps/web"
+  # apps/api é um projeto Maven — não gerenciado pelo pnpm
+  # apps/api-ts foi removido (protótipo legado, sem uso pelo frontend)

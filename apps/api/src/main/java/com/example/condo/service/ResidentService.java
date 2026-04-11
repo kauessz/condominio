@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -144,11 +145,12 @@ public class ResidentService {
         resident.setName(request.name().trim());
         resident.setEmail(request.email() != null ? request.email().trim() : null);
         resident.setPhone(request.phone() != null ? request.phone().trim() : null);
+        resident.setCpf(normalizeCpf(request.cpf()));
         maybeCreateLinkedUser(tenantId, resident, request.createAccount(), request.accessRole(), request.password());
 
         resident = residentRepo.save(resident);
         ResidentResponse after = enrichAccount(ResidentResponse.from(resident), tenantId);
-        auditService.log("CREATE", "Resident", resident.getId(), resident.getCondominiumId(), null, after);
+        auditService.log("CREATE", "Resident", resident.getId(), resident.getCondominiumId(), null, after, residentAuditDetails(resident, after));
 
         return after;
     }
@@ -183,11 +185,12 @@ public class ResidentService {
         if (request.name() != null) resident.setName(request.name().trim());
         if (request.email() != null) resident.setEmail(request.email().trim());
         if (request.phone() != null) resident.setPhone(request.phone().trim());
+        if (request.cpf() != null) resident.setCpf(normalizeCpf(request.cpf()));
         syncLinkedUser(tenantId, resident, request.hasAccount(), request.accessRole(), request.password());
 
         resident = residentRepo.save(resident);
         ResidentResponse after = enrichAccount(ResidentResponse.from(resident), tenantId);
-        auditService.log("UPDATE", "Resident", resident.getId(), resident.getCondominiumId(), before, after);
+        auditService.log("UPDATE", "Resident", resident.getId(), resident.getCondominiumId(), before, after, residentAuditDetails(resident, after));
 
         return after;
     }
@@ -212,7 +215,7 @@ public class ResidentService {
             userRepo.findByTenantIdAndId(tenantId, resident.getUserId()).ifPresent(userRepo::delete);
         }
         residentRepo.delete(resident);
-        auditService.log("DELETE", "Resident", id, resident.getCondominiumId(), before, null);
+        auditService.log("DELETE", "Resident", id, resident.getCondominiumId(), before, null, residentAuditDetails(resident, before));
     }
 
     /**
@@ -365,5 +368,42 @@ public class ResidentService {
             .map(user -> user.getRole().name())
             .orElse(null);
         return ResidentResponse.withAccount(response, accessRole);
+    }
+
+    private Map<String, Object> residentAuditDetails(Resident resident, ResidentResponse response) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("residentId", resident.getId());
+        details.put("residentName", resident.getName());
+        details.put("residentEmail", resident.getEmail());
+        details.put("userId", resident.getUserId());
+        details.put("unitId", resident.getUnitId());
+        details.put("unitLabel", buildUnitLabel(response));
+        return details;
+    }
+
+    /**
+     * Normaliza o CPF removendo máscara e espaços.
+     * Retorna null se vazio ou nulo. Armazena somente os 11 dígitos.
+     */
+    private String normalizeCpf(String cpf) {
+        if (cpf == null || cpf.isBlank()) {
+            return null;
+        }
+        String digits = cpf.replaceAll("[^0-9]", "");
+        return digits.isBlank() ? null : digits;
+    }
+
+    private String buildUnitLabel(ResidentResponse response) {
+        if (response.unitDisplay() != null && !response.unitDisplay().isBlank()) {
+            return response.unitDisplay();
+        }
+        if (response.unitId() == null) {
+            return null;
+        }
+        return unitRepo.findByTenantIdAndId(TenantContext.get(), response.unitId())
+            .map(unit -> unit.getBlock() != null && !unit.getBlock().isBlank()
+                ? "Unidade " + unit.getNumber() + " - Bloco " + unit.getBlock()
+                : "Unidade " + unit.getNumber())
+            .orElse("Unidade #" + response.unitId());
     }
 }

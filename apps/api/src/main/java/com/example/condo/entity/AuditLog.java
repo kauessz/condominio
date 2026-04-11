@@ -34,6 +34,9 @@ public class AuditLog {
     @Column(name = "actor_email")
     private String actorEmail;
 
+    @Column(name = "module", length = 32)
+    private String module;
+
     @Column(name = "entity_name", nullable = false)
     private String entityName;
 
@@ -42,6 +45,9 @@ public class AuditLog {
 
     @Column(name = "action", nullable = false)
     private String action;
+
+    @Column(name = "description")
+    private String description;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "before_state", columnDefinition = "jsonb")
@@ -79,6 +85,9 @@ public class AuditLog {
     public String getActorEmail() { return actorEmail; }
     public void setActorEmail(String actorEmail) { this.actorEmail = actorEmail; }
 
+    public String getModule() { return module; }
+    public void setModule(String module) { this.module = module; }
+
     public String getEntityName() { return entityName; }
     public void setEntityName(String entityName) { this.entityName = entityName; }
 
@@ -87,6 +96,9 @@ public class AuditLog {
 
     public String getAction() { return action; }
     public void setAction(String action) { this.action = action; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
 
     public JsonNode getBeforeState() { return beforeState; }
     public void setBeforeState(JsonNode beforeState) { this.beforeState = beforeState; }

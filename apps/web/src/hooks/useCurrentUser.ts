@@ -9,6 +9,7 @@ interface ApiMeResponse {
   role: string;
   tenant: string;
   unitId?: number | null;
+  condominiumId?: number | null;
   createdAt?: string;
 }
 
@@ -45,6 +46,8 @@ export function useCurrentUser() {
           email: data.email ?? "",
           role: (data.role as Role) ?? "ADMIN",
           unitId: data.unitId != null ? String(data.unitId) : undefined,
+          condominiumId:
+            data.condominiumId != null ? String(data.condominiumId) : undefined,
         };
         setUser(u);
         setLocalUser(u);
